@@ -1,0 +1,30 @@
+# AI 网关配置（OpenAI 兼容接口；api_key 从 .env 读取）
+ai:
+  base_url: https://gate.aidingqing.com/v1
+  model_id: q-GPT-5.6-Sol-Standard
+
+# 数据库配置
+db:
+  file: agno_media.db
+
+# 本地服务配置
+server:
+  host: localhost
+  port: 7777
+  reload: true
+  tracing: true
+
+# 各 Agent 配置（key 需与 agents 目录下的文件名前缀一致）
+agents:
+  web_agent:
+    name: Web Agent
+    instructions:
+      - You are a helpful web assistant.
+      - Answer clearly and concisely.
+    num_history_runs: 3
+  media_agent:
+    name: Media Agent
+    instructions:
+      - You are a media content assistant.
+      - Help with writing, summarizing, and editing media content.
+    num_history_runs: 3
