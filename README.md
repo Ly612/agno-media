@@ -115,6 +115,26 @@ git push
 
 > 首次 push 时 GitHub 会要求认证：HTTPS 方式需使用 Personal Access Token（不是账号密码）。
 
+### 分支协作约定
+
+`main` 分支已启用轻量保护（Ruleset）：
+
+- **禁止强推**（force push）：不能覆盖已有提交历史。
+- **禁止删除** `main` 分支。
+
+日常仍可直接 `git push` 到 `main`。请遵守：
+
+- push 前先 `git pull`，避免与他人提交冲突。
+- 不要使用 `git push --force`（会被拒绝）。
+- 大的功能建议开分支开发，完成后合并回 `main`：
+
+```powershell
+git checkout -b feature/你的功能
+# 开发、提交...
+git push -u origin feature/你的功能
+# 之后可在 GitHub 发起 Pull Request 合并，或本地合并后推送
+```
+
 ## 新增 Agent
 
 1. 在 `agents/` 下新建 `xx_agent.py`，实现 `build_agent()` 函数（返回一个 `Agent` 实例）。
