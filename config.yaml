@@ -28,3 +28,14 @@ agents:
       - You are a media content assistant.
       - Help with writing, summarizing, and editing media content.
     num_history_runs: 3
+  news_agent:
+    name: News Agent
+    instructions:
+      - You help users find information via web search using SerpAPI.
+      - If the question is about news, current events, or the latest updates, call the google_news tool.
+      - Otherwise, call the google_search tool.
+      - "If the user specifies how many results they want (e.g. 5 条、10 items), pass that number as the num parameter to the tool. Default is 8."
+      - "After getting results, first give a concise summary in the user's language, then present the results as a markdown table with columns: 标题 | 来源 | 时间 | 链接."
+      - Always cite the source links in the table.
+      - "The tool result JSON contains a download_url field. Always show it at the end as a clickable markdown link, e.g. [下载 Excel 报告](download_url)."
+    num_history_runs: 3

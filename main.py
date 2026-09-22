@@ -4,9 +4,17 @@ from pathlib import Path
 
 from agno.agent import Agent
 from agno.os import AgentOS
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
 
 from utils.db import get_db
-from utils.settings import SERVER_HOST, SERVER_PORT, SERVER_RELOAD, SERVER_TRACING
+from utils.settings import (
+    EXPORT_DIR,
+    SERVER_HOST,
+    SERVER_PORT,
+    SERVER_RELOAD,
+    SERVER_TRACING,
+)
 
 AGENTS_DIR = Path(__file__).resolve().parent / "agents"
 
@@ -30,6 +38,19 @@ agent_os = AgentOS(
     tracing=SERVER_TRACING,
 )
 app = agent_os.get_app()
+
+
+@app.get("/download/{filename}")
+def download_report(filename: str):
+    filepath = (EXPORT_DIR / filename).resolve()
+    # 防止路径穿越，确保文件在导出目录内
+    if EXPORT_DIR.resolve() not in filepath.parents or not filepath.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(
+        path=filepath,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 if __name__ == "__main__":
