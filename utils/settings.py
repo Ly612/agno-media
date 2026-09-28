@@ -30,4 +30,10 @@ SERVER_TRACING = _server.get("tracing", True)
 
 # 导出报告的存放目录与对外下载地址
 EXPORT_DIR = BASE_DIR / "exports"
-DOWNLOAD_BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/download"
+# 对外访问地址：优先用 config 的 public_base_url，否则回退到 host:port（本地开发）
+_public = (_server.get("public_base_url") or "").rstrip("/")
+_base = _public if _public else f"http://{SERVER_HOST}:{SERVER_PORT}"
+DOWNLOAD_BASE_URL = f"{_base}/download"
+
+# 允许跨域访问的前端来源列表。config 留空则回退为 ["*"]（放行所有来源）
+CORS_ORIGINS = _server.get("cors_origins") or ["*"]

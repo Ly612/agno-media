@@ -5,10 +5,12 @@ from pathlib import Path
 from agno.agent import Agent
 from agno.os import AgentOS
 from fastapi import HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from utils.db import get_db
 from utils.settings import (
+    CORS_ORIGINS,
     EXPORT_DIR,
     SERVER_HOST,
     SERVER_PORT,
@@ -38,6 +40,15 @@ agent_os = AgentOS(
     tracing=SERVER_TRACING,
 )
 app = agent_os.get_app()
+
+# 允许前端（agent-ui）跨域访问后端 API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ORIGINS != ["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/download/{filename}")
