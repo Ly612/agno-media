@@ -1,4 +1,5 @@
 import importlib
+import mimetypes
 import pkgutil
 from pathlib import Path
 
@@ -57,10 +58,12 @@ def download_report(filename: str):
     # 防止路径穿越，确保文件在导出目录内
     if EXPORT_DIR.resolve() not in filepath.parents or not filepath.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")
+    # 按扩展名推断 MIME（.xlsx / .docx 等各自对应），未知则交给浏览器兜底
+    media_type, _ = mimetypes.guess_type(filename)
     return FileResponse(
         path=filepath,
         filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type or "application/octet-stream",
     )
 
 
