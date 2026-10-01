@@ -16,12 +16,16 @@ agno-media/
 ├── pyproject.toml       # 依赖声明
 ├── agents/              # 每个文件 = 一个 Agent
 │   ├── web_agent.py
-│   └── media_agent.py
+│   ├── media_agent.py
+│   ├── news_agent.py
+│   └── media_monitor_agent.py   # 国际媒体监控（工具型 Agent）
 └── utils/               # 通用模块
     ├── config.py        # 加载 config.yaml
     ├── settings.py      # token 从 .env，其余从 yaml
     ├── model.py         # OpenAILike 接第三方网关
-    └── db.py            # SqliteDb 单例
+    ├── db.py            # SqliteDb 单例
+    ├── scheduler.py     # 进程内定时任务（APScheduler）
+    └── media_monitor_*.py  # 媒体监控流水线及其工具（抓取/社交/截图/Word/推送）
 ```
 
 ## 环境要求
@@ -134,6 +138,76 @@ git checkout -b feature/你的功能
 git push -u origin feature/你的功能
 # 之后可在 GitHub 发起 Pull Request 合并，或本地合并后推送
 ```
+
+## Media Monitor Agent（媒体监控）
+
+从 `qf-toolkit` 移植的「LLM 驱动五阶段媒体监控流水线」，在界面上显示为一个
+**Media Monitor Agent**。它抓取 23 家国际主流媒体首页，用 LLM 挑选全球与涉华
+话题、生成多方观点摘要，渲染成 Markdown 日报并转 Word，可选推送飞书/邮件。
+
+### 五个阶段
+
+1. **首页抓取**（BrightData）：抓 23 家媒体首页首屏内容。
+2. **话题挑选**（LLM）：从首页内容里挑出重要的全球 / 涉华话题。
+3. **详情总结**（LLM + BrightData 正文抓取）：逐话题抓正文、生成多方观点摘要。
+4. **社交平台板块**（Apify + LLM）：抓 Facebook / X / Google News 贴文并总结。
+5. **简报渲染**：汇总为 Markdown 日报 → 转 Word → 可选推送飞书 / 邮件。
+
+### 外部服务与开关（全部可选，无凭证则对应阶段自动跳过）
+
+在 `.env` 里按需填入（参见 `.env.example`）：
+
+| 服务 | 环境变量 | 缺失时 |
+| --- | --- | --- |
+| BrightData（核心抓取） | `BRIGHT_DATA_API_KEY` / `BRIGHT_DATA_ZONE` | 无法跑核心三阶段 |
+| 专用 LLM 网关（可选） | `MEDIA_MONITOR_LLM_*` | 回落到 `AI_API_KEY` / config 的 `ai` 段 |
+| Apify（社交板块） | `APIFY_API_KEY` | 跳过社交板块 |
+| 飞书推送 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_CHAT_ID` | 跳过飞书推送 |
+| 邮件推送 | `MEDIA_MONITOR_SMTP_*` | 跳过邮件推送 |
+| AdsPower（截图指纹浏览器） | `MEDIA_MONITOR_ADSPOWER_*` | 回退本地 Chromium 截图 |
+
+> 截图与 Word 为重依赖（Playwright / pandoc），缺失时自动跳过。需要时安装：
+> `uv pip install -e ".[media-monitor]"` 并 `playwright install chromium`；
+> Word 转换另需系统 `pandoc` 二进制。
+
+非敏感默认行为（是否推送、是否跳过某阶段、专用 LLM）在 `config.yaml` 的
+`media_monitor` 段配置。
+
+### 在聊天里使用
+
+对 Media Monitor Agent 说「**运行今天的媒体监控**」即触发完整流水线；也可要求
+分步执行（只抓首页 / 只挑话题 / 只渲染报告）。工具返回 JSON（含报告与 Word
+文件路径），Agent 会用中文说明结果。
+
+### 命令行使用（调试 / 手动跑）
+
+```bash
+python -m utils.media_monitor_pipeline                 # 完整流水线（含 Word）
+python -m utils.media_monitor_pipeline --scrape-only   # 只爬首页
+python -m utils.media_monitor_pipeline --skip-to topics  # 从话题挑选开始
+python -m utils.media_monitor_pipeline --skip-social   # 跳过社交板块
+python -m utils.media_monitor_pipeline --push-feishu   # 完整流水线 + 推送飞书
+python -m utils.media_monitor_pipeline --daily         # 每日定时入口（含推送+异常报警）
+```
+
+产物默认落在 `output/media_monitor/`。
+
+### 定时运行（进程内 APScheduler）
+
+在 `config.yaml` 的 `scheduler` 段开启，随 `python main.py` 一起启动：
+
+```yaml
+scheduler:
+  enabled: true
+  cron: ""            # 五段式 "m h dom mon dow"，优先级高于下面的 hour/minute
+  hour: 8
+  minute: 0
+  day_of_week: "*"    # 每天；工作日用 "mon-fri"
+  timezone: "Asia/Shanghai"
+```
+
+> 默认 `enabled: false`，避免开发态误触发真实抓取。启用后需确保已配置
+> BrightData key，否则调度器会打印警告、不注册任务。
 
 ## 新增 Agent
 

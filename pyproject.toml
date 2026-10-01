@@ -11,4 +11,25 @@ dependencies = [
     "google-search-results>=2.4.2",
     "openpyxl>=3.1.0",
     "greenlet>=3.0.0",
+    "requests>=2.32",
+    "apscheduler>=3.10",
 ]
+
+[project.optional-dependencies]
+# 媒体监控的重依赖：缺失时对应阶段自动跳过，核心流程仍可运行。
+# - pypandoc：Markdown 转 Word（另需系统 pandoc 二进制）
+# - playwright：信源网站首页截图（另需 `playwright install chromium`）
+media-monitor = [
+    "pypandoc>=1.17",
+    "playwright==1.52.0",
+]
+
+# 本项目是可运行的服务，不作为库分发。显式声明构建后端并关闭自动包发现，
+# 避免 setuptools 把 agents/utils/output/docs 当成「多个顶层包」而报错。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# 只把 utils 作为可被 import 的包纳入；agents 通过运行时目录发现，无需打包。
+packages = ["utils"]

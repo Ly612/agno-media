@@ -1,7 +1,12 @@
-# AI 网关配置（OpenAI 兼容接口；api_key 从 .env 读取）
+# AI 网关配置（OpenAI 兼容接口）
 ai:
   base_url: https://gate.aidingqing.com/v1
   model_id: q-GPT-5.6-Sol-Standard
+  api_key: ""   # 第三方网关 token，必填
+
+# SerpAPI（Google 搜索/新闻）密钥，从 https://serpapi.com 获取
+serpapi:
+  api_key: ""
 
 # 数据库配置
 db:
@@ -20,16 +25,54 @@ server:
   # 生产环境建议明确指定，如： ["http://150.109.16.54:3000"]
   cors_origins: []
 
-# 媒体监控流水线配置（非敏感默认值；token 走 .env）
+# 媒体监控流水线配置
+# 以下各外部服务凭证均可选，留空则对应阶段在流水线里自动跳过，不阻塞核心流程。
+# 只要填好 brightdata（下方）即可跑通核心三阶段（抓取→挑话题→总结）。
 media_monitor:
-  # 独立 LLM 网关（留空则回落到上面的 ai 段 / .env 的 AI_* 配置）
-  llm_base_url: ""
-  llm_model: ""
-  llm_max_tokens: 16000
+  # BrightData（首页抓取 + 正文抓取，核心阶段必需）
+  brightdata:
+    api_key: ""
+    zone: ""
+
+  # 媒体监控专用 LLM 网关（可选；留空则回落到上面的 ai 段）
+  llm:
+    api_key: ""
+    base_url: ""
+    model: ""
+    max_tokens: 16000
+
+  # Apify（社交平台抓取：Facebook / X / Google News；无则跳过社交板块）
+  apify:
+    api_key: ""
+    proxy: ""   # 留空默认 http://127.0.0.1:7897
+
+  # 飞书自建应用机器人（推送 Word 日报到群；无则跳过飞书推送）
+  feishu:
+    app_id: ""
+    app_secret: ""
+    chat_id: ""
+
+  # 邮件 SMTP（推送 Word 日报附件；无则跳过邮件推送）
+  smtp:
+    host: ""
+    port: 465
+    user: ""
+    password: ""
+    mail_from: ""
+    mail_to: ""     # 多个收件人用英文逗号分隔
+    mail_bcc: ""    # 密送，多个用英文逗号分隔
+    use_ssl: true
+
+  # AdsPower 指纹浏览器（截图阶段可选，带代理/指纹出图；不配则用本地 Chromium）
+  adspower:
+    api_url: "http://local.adspower.net:50325"
+    user_id: ""
+    enabled: true
+
   # 流水线默认行为（可被 Agent 工具参数覆盖）
-  push_feishu: false      # 生成后推送 Word 到飞书群（需 FEISHU_* 凭证）
-  push_email: false       # 生成后发邮件附件（需 MEDIA_MONITOR_SMTP_* 凭证）
-  skip_social: false      # 跳过社交平台板块（无 APIFY_API_KEY 时自动跳过）
+  push_feishu: false      # 生成后推送 Word 到飞书群（需上面的 feishu 凭证）
+  push_email: false       # 生成后发邮件附件（需上面的 smtp 凭证）
+  skip_social: false      # 跳过社交平台板块（无 apify.api_key 时自动跳过）
   skip_screenshot: false  # 跳过信源网站截图（无 Playwright 时自动跳过）
   skip_word: false        # 跳过 Word 转换（无 pandoc 时自动跳过）
 
