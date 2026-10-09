@@ -16,6 +16,15 @@ _COLUMNS = [
     ("snippet", "摘要"),
 ]
 
+# 社媒互动数据列（仅当结果中含这些字段时才追加）
+_OPTIONAL_COLUMNS = [
+    ("likes", "点赞"),
+    ("comments", "评论"),
+    ("shares", "转发"),
+    ("views", "浏览"),
+    ("media_url", "媒体"),
+]
+
 
 def _safe_name(query: str) -> str:
     slug = re.sub(r"[^\w\u4e00-\u9fa5]+", "_", query).strip("_")[:30]
@@ -41,17 +50,22 @@ def export_to_excel(query: str, results: list[dict]) -> str:
     ws = wb.active
     ws.title = "结果"
 
-    headers = [label for _, label in _COLUMNS]
+    # 若结果里带有社媒互动字段，则在基础列后追加对应列
+    columns = list(_COLUMNS)
+    if results and any(key in results[0] for key, _ in _OPTIONAL_COLUMNS):
+        columns += [col for col in _OPTIONAL_COLUMNS if col[0] in results[0]]
+
+    headers = [label for _, label in columns]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
 
     for r in results:
-        ws.append([str(r.get(key, "")) for key, _ in _COLUMNS])
+        ws.append([str(r.get(key, "") if r.get(key) is not None else "") for key, _ in columns])
 
-    widths = [40, 18, 22, 50, 60]
-    for idx, width in enumerate(widths, start=1):
-        ws.column_dimensions[chr(64 + idx)].width = width
+    base_widths = {"title": 40, "source": 18, "date": 22, "link": 50, "snippet": 60}
+    for idx, (key, _) in enumerate(columns, start=1):
+        ws.column_dimensions[chr(64 + idx)].width = base_widths.get(key, 14)
 
     wb.save(filepath)
     return f"{DOWNLOAD_BASE_URL}/{filename}"

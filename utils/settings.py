@@ -19,6 +19,12 @@ AI_API_KEY = os.getenv("AI_API_KEY", "")
 # SerpAPI（Google 搜索/新闻）密钥，从 .env 读取
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "")
 
+# SocialCrawl（Facebook 等社媒抓取）密钥与基础地址
+SOCIALCRAWL_API_KEY = os.getenv("SOCIALCRAWL_API_KEY", "")
+SOCIALCRAWL_BASE_URL = _config.get("socialcrawl", {}).get(
+    "base_url", "https://www.socialcrawl.dev"
+).rstrip("/")
+
 _db = _config.get("db", {})
 DB_FILE = str(BASE_DIR / _db.get("file", "agno_media.db"))
 
@@ -37,6 +43,13 @@ DOWNLOAD_BASE_URL = f"{_base}/download"
 
 # 允许跨域访问的前端来源列表。config 留空则回退为 ["*"]（放行所有来源）
 CORS_ORIGINS = _server.get("cors_origins") or ["*"]
+
+# MCP Server（供豆包等 MCP Client 接入）监听配置
+_mcp = _config.get("mcp", {})
+MCP_HOST = _mcp.get("host", "0.0.0.0")
+MCP_PORT = _mcp.get("port", 8000)
+# MCP 接入鉴权 token（从 .env 读取）。留空则不校验（不推荐对外暴露时留空）
+MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN", "")
 
 
 # ═══════════════════════════════════════════════════════════

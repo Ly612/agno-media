@@ -180,6 +180,53 @@ sudo firewall-cmd --reload
 
 ---
 
+## 四点五、部署 MCP Server（供豆包等 MCP Client 接入，可选）
+
+若需让豆包通过「自定义连接器」调用新闻搜索/导出能力，额外启动 MCP Server（默认端口 8000）。
+
+### 1. 启动
+
+```bash
+cd /root/agno-media
+source .venv/bin/activate
+nohup .venv/bin/python mcp_server.py > logs/mcp.log 2>&1 &
+tail -f logs/mcp.log   # 看到 Uvicorn running on http://0.0.0.0:8000 即成功
+```
+
+### 2. 放行 8000 端口
+
+```bash
+sudo firewall-cmd --permanent --add-port=8000/tcp
+sudo firewall-cmd --reload
+```
+
+> 腾讯云等还需在**安全组**放行 8000。
+
+### 3. 在豆包中接入
+
+先在 `.env` 设置鉴权 token（强烈建议，防止 8000 端口被他人盗用消耗 SerpAPI 额度）：
+
+```
+MCP_AUTH_TOKEN=自定义一个足够复杂的密钥
+```
+
+> 留空则不校验（任何人可调用，不推荐对外暴露时留空）。改动后需重启 MCP Server。
+
+豆包 →「新建自定义连接器」：
+- 传输类型：**HTTP**
+- 服务器 URL：`http://SERVER_IP:8000/mcp`
+- 自定义 Headers：点「添加」，填
+  - Key：`Authorization`
+  - Value：`Bearer 你在.env里设置的MCP_AUTH_TOKEN`
+
+保存后豆包即可调用三个工具：`google_news`、`google_search`、`export_report`。
+
+> 验证鉴权：不带 Header 请求会返回 401，带正确 Bearer token 返回 200。
+
+> 注意：Excel 下载链接仍由 AgentOS 后端（7777）的 `/download` 提供，因此 MCP Server 和后端需同时运行。
+
+---
+
 ## 五、访问与使用
 
 1. 浏览器打开：`http://SERVER_IP:3000`

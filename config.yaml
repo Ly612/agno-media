@@ -14,34 +14,22 @@ server:
   reload: false
   tracing: true
   # 对外访问后端的基础地址（用于生成 Excel 下载链接）。
-  # 本地留空即可（自动用 host:port）；服务器部署时填 http://服务器IP:7777
+  # 本地留空即可（自动用 host:port）；
+  # 服务器直连填 http://服务器IP:7777；
+  # 配了域名+Nginx反代则填 http://你的域名（下载走 /download 路径转发到 7777）
   public_base_url: "http://150.109.16.54:7777"
   # 允许跨域访问的前端来源；留空或不填则放行所有来源（["*"]）。
   # 生产环境建议明确指定，如： ["http://150.109.16.54:3000"]
   cors_origins: []
 
-# 媒体监控流水线配置（非敏感默认值；token 走 .env）
-media_monitor:
-  # 独立 LLM 网关（留空则回落到上面的 ai 段 / .env 的 AI_* 配置）
-  llm_base_url: ""
-  llm_model: ""
-  llm_max_tokens: 16000
-  # 流水线默认行为（可被 Agent 工具参数覆盖）
-  push_feishu: false      # 生成后推送 Word 到飞书群（需 FEISHU_* 凭证）
-  push_email: false       # 生成后发邮件附件（需 MEDIA_MONITOR_SMTP_* 凭证）
-  skip_social: false      # 跳过社交平台板块（无 APIFY_API_KEY 时自动跳过）
-  skip_screenshot: false  # 跳过信源网站截图（无 Playwright 时自动跳过）
-  skip_word: false        # 跳过 Word 转换（无 pandoc 时自动跳过）
+# MCP Server 配置（供豆包等 MCP Client 通过 HTTP 接入）
+mcp:
+  host: 0.0.0.0
+  port: 8000
 
-# 定时任务（进程内 APScheduler，随 main.py 启动）
-scheduler:
-  enabled: false
-  # cron 五段式 "m h dom mon dow"，优先级高于下面的 hour/minute；留空则用 hour/minute/day_of_week
-  cron: ""
-  hour: 8
-  minute: 0
-  day_of_week: "*"        # 每天；工作日用 "mon-fri"
-  timezone: "Asia/Shanghai"
+# SocialCrawl 社媒抓取服务（api_key 从 .env 的 SOCIALCRAWL_API_KEY 读取）
+socialcrawl:
+  base_url: https://www.socialcrawl.dev
 
 # 各 Agent 配置（key 需与 agents 目录下的文件名前缀一致）
 agents:
