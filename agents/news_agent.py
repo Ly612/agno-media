@@ -4,6 +4,7 @@ from utils.config import get_agent_config
 from utils.db import get_db
 from utils.model import get_model
 from utils.serpapi_tools import google_news, google_search
+from utils.socialcrawl_tools import facebook_profile_posts
 
 
 def build_agent() -> Agent:
@@ -12,7 +13,7 @@ def build_agent() -> Agent:
         name=cfg.get("name", "News Agent"),
         model=get_model(),
         db=get_db(),
-        tools=[google_news, google_search],
+        tools=[google_news, google_search, facebook_profile_posts],
         instructions=cfg.get(
             "instructions",
             [
