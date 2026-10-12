@@ -10,7 +10,7 @@
     python -m tools.word <input.md> <output.docx>     # 指定输入与输出
 
 示例:
-    python -m tools.word output/media_monitor/report_20260810_150626.md
+    python -m tools.word output/daily_report/report_20260810_150626.md
 
 输出 docx 默认与输入同目录、同名。若同目录存在 reference.docx，
 则作为样式参考模板（--reference-doc）；否则使用 pandoc 默认样式。
@@ -25,7 +25,7 @@ from typing import List, Optional
 
 import pypandoc
 
-DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "output" / "media_monitor"
+DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "output" / "daily_report"
 
 
 def _find_latest_report() -> Optional[Path]:

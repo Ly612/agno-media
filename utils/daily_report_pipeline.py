@@ -1,28 +1,28 @@
 """媒体监控 Agent：LLM 驱动的五阶段媒体监控流水线。
 
-Phase 1: 首页抓取（委托 tools.MediaMonitorToolkit）
+Phase 1: 首页抓取（委托 utils.daily_report_tool.DailyReportToolkit）
 Phase 2: 话题挑选（LLM）
 Phase 3: 详情总结（LLM + BrightData 正文抓取）
-Phase 4: 社交平台抓取 + 贴文总结（委托 tools.ApifyScraperToolkit + LLM）
+Phase 4: 社交平台抓取 + 贴文总结（委托 utils.apify_scraper.ApifyScraperToolkit + LLM）
 Phase 5: 简报渲染（LLM / 本地降级，含海外社交平台板块）
 
 依赖:
     - agno (Agent, OpenAILike, BrightDataTools)
-    - tools.MediaMonitorToolkit（Phase 1 抓取）
-    - LLM API（环境变量 MEDIA_MONITOR_LLM_API_KEY 等）
+    - utils.daily_report_tool.DailyReportToolkit（Phase 1 抓取）
+    - LLM API（环境变量 DAILY_REPORT_LLM_API_KEY 等）
 
 用法:
-    from utils.media_monitor_pipeline import MediaMonitorPipeline
+    from utils.daily_report_pipeline import DailyReportPipeline
 
-    agent = MediaMonitorPipeline()
+    agent = DailyReportPipeline()
     result = agent.run_full_pipeline()
     agent.select_topics(manifest_file="scrape_manifest.json")
     agent.render_report(summaries_file="summaries.json")
 
     # 命令行:
-    python -m utils.media_monitor_pipeline
-    python -m utils.media_monitor_pipeline --skip-to topics
-    python -m utils.media_monitor_pipeline --scrape-only
+    python -m utils.daily_report_pipeline
+    python -m utils.daily_report_pipeline --skip-to topics
+    python -m utils.daily_report_pipeline --scrape-only
 """
 
 from __future__ import annotations
@@ -43,35 +43,11 @@ import requests
 from agno.agent import Agent
 from agno.models.openai.like import OpenAILike
 
-from utils.settings import apify_settings, media_monitor_settings, bright_data_settings
+from utils.settings import apify_settings, daily_report_settings, bright_data_settings
 from utils.apify_scraper import ApifyScraperToolkit, _extract_urls
-from utils.email_sender import EmailSender
-from utils.feishu_bot import FeishuBot
-from utils.media_monitor_tool import (BEIJING_TZ,
+from utils.daily_report_tool import (BEIJING_TZ,
                                  DEFAULT_OUTPUT_DIR, MEDIA_SOURCES,
-                                 TRUNCATE_LIMIT, MediaMonitorToolkit)
-
-# ── 对外命名（邮件标题 / 附件显示名）─────────────────────────
-# 磁盘文件仍是 report_YYYYMMDD_HHMMSS.md/.docx（word.py 的 glob/日期正则依赖此前缀，
-# 不改）；只在发邮件时把标题与附件显示名改成「日报选题参考-YYYYMMDD-H点」。
-# 小时取报告的运行时刻（24 小时制、去掉前导 0），而非发送时刻，
-# 这样 --skip-to send 补发旧报告时标题也对得上报告本身的时间。
-_REPORT_TS_RE = re.compile(r"report_(\d{8})_(\d{2})\d{4}")
-
-
-def _report_display_name(report_path: str) -> str:
-    """由报告文件名推出对外展示名「日报选题参考-YYYYMMDD-H点」（不含后缀）。
-
-    文件名符合 report_YYYYMMDD_HHMMSS 时取其中的日期与小时；
-    不符合（如用户自定义 output_file）时回落到当前北京时间。
-    """
-    m = _REPORT_TS_RE.search(Path(report_path).name)
-    if m:
-        date_part, hour_part = m.group(1), int(m.group(2))
-    else:
-        now = datetime.now(BEIJING_TZ)
-        date_part, hour_part = now.strftime("%Y%m%d"), now.hour
-    return f"日报选题参考-{date_part}-{hour_part}点"
+                                 TRUNCATE_LIMIT, DailyReportToolkit)
 
 
 # ── LLM Prompt 模板 ───────────────────────────────────────
@@ -907,13 +883,13 @@ def _guess_source(url: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# MediaMonitorAgent
+# DailyReportPipeline
 # ═══════════════════════════════════════════════════════════
 
-class MediaMonitorPipeline:
+class DailyReportPipeline:
     """媒体监控流水线：LLM 驱动的五阶段流水线编排。
 
-    Phase 1: 首页抓取（委托 MediaMonitorToolkit）
+    Phase 1: 首页抓取（委托 DailyReportToolkit）
     Phase 2: 话题挑选（LLM）
     Phase 3: 详情总结（LLM + BrightData 正文抓取）
     Phase 4: 社交平台抓取 + 贴文总结（委托 ApifyScraperToolkit + LLM）
@@ -922,11 +898,11 @@ class MediaMonitorPipeline:
     Args:
         brightdata_key:  BrightData API 密钥（默认从 config 读取）
         brightdata_zone:  BrightData zone 名称（默认从 config 读取）
-        llm_api_key:      LLM API 密钥（默认从 MEDIA_MONITOR_LLM_API_KEY 环境变量读取）
+        llm_api_key:      LLM API 密钥（默认从 DAILY_REPORT_LLM_API_KEY 环境变量读取）
         llm_base_url:     LLM API 地址（默认 https://api.302ai.com）
         llm_model:        模型 ID（默认 deepseek-v4-pro）
         apify_api_key:    Apify API 密钥（默认从 config 读取，env: APIFY_API_KEY）
-        output_dir:       输出目录（默认项目根/output/media_monitor）
+        output_dir:       输出目录（默认项目根/output/daily_report）
     """
 
     def __init__(
@@ -942,16 +918,12 @@ class MediaMonitorPipeline:
     ):
         self.brightdata_key = brightdata_key or bright_data_settings.api_key
         self.brightdata_zone = brightdata_zone or bright_data_settings.zone
-        self.llm_api_key = llm_api_key or media_monitor_settings.llm_api_key or os.getenv("302_API_KEY", "")
-        self.llm_base_url = llm_base_url or media_monitor_settings.llm_base_url
-        self.llm_model = llm_model or media_monitor_settings.llm_model
-        self.llm_max_tokens = llm_max_tokens or media_monitor_settings.llm_max_tokens
+        self.llm_api_key = llm_api_key or daily_report_settings.llm_api_key or os.getenv("302_API_KEY", "")
+        self.llm_base_url = llm_base_url or daily_report_settings.llm_base_url
+        self.llm_model = llm_model or daily_report_settings.llm_model
+        self.llm_max_tokens = llm_max_tokens or daily_report_settings.llm_max_tokens
         self.apify_key = apify_api_key or apify_settings.api_key
         self.output_dir = Path(output_dir) if output_dir else DEFAULT_OUTPUT_DIR
-        # 飞书推送（无凭证时 send_* 自行返回错误、不抛出）
-        self.feishu = FeishuBot()
-        # 邮件推送（无凭证时 send_* 自行返回错误、不抛出）
-        self.email = EmailSender()
 
     # ── LLM 辅助 ──────────────────────────────────────────
 
@@ -988,10 +960,10 @@ class MediaMonitorPipeline:
             delay:      请求间隔秒数
 
         Returns:
-            同 MediaMonitorToolkit.scrape_all_homepages 的返回值
+            同 DailyReportToolkit.scrape_all_homepages 的返回值
         """
         base = Path(output_dir) if output_dir else self.output_dir
-        toolkit = MediaMonitorToolkit(
+        toolkit = DailyReportToolkit(
             brightdata_key=self.brightdata_key,
             brightdata_zone=self.brightdata_zone,
             output_dir=str(base),
@@ -1329,7 +1301,7 @@ class MediaMonitorPipeline:
 
         print(f"   [{idx}/{total}] {topic_name} — 直接抓正文补全 ...", end="", flush=True)
 
-        toolkit = MediaMonitorToolkit(
+        toolkit = DailyReportToolkit(
             brightdata_key=self.brightdata_key,
             brightdata_zone=self.brightdata_zone,
         )
@@ -2032,8 +2004,6 @@ class MediaMonitorPipeline:
         skip_screenshot: bool = False,
         headless: bool = True,
         skip_word: bool = False,
-        push_feishu: bool = False,
-        push_email: bool = False,
     ) -> Dict[str, Any]:
         """一键运行完整的媒体监控五阶段流水线。
 
@@ -2047,13 +2017,10 @@ class MediaMonitorPipeline:
             skip_screenshot: 跳过 Phase 4.5（信源网站首页截图板块）
             headless:    截图是否无头模式（默认 True）
             skip_word:   跳过末尾的 Word 转换（pypandoc / pandoc 不可用时自动跳过）
-            push_feishu: Word 生成后把文档推送到飞书群（需配置 FEISHU_* 凭证）
-            push_email:  Word 生成后把文档作为附件发到邮箱（需配置 MEDIA_MONITOR_SMTP_* 凭证）
 
         Returns:
             {"report": "...", "report_file": "...", "word_file": "...",
-             "topics_file": "...", "summaries_file": "...", "social_summaries_file": "...",
-             "feishu_pushed": bool, "email_sent": bool}
+             "topics_file": "...", "summaries_file": "...", "social_summaries_file": "..."}
         """
         if output_dir:
             self.output_dir = Path(output_dir)
@@ -2145,39 +2112,6 @@ class MediaMonitorPipeline:
         if not skip_word and report.get("output_file"):
             word_file = self.convert_report_to_word(report["output_file"]) or ""
 
-        # 飞书推送：优先发 Word 文档；Word 缺失时兜底发一条文本说明
-        feishu_pushed = False
-        if push_feishu:
-            print("📤 推送到飞书群 ...")
-            if word_file:
-                res = self.feishu.send_file(word_file)
-            else:
-                res = self.feishu.send_text(
-                    f"今日媒体监控日报已生成，但 Word 转换不可用，Markdown 报告见: {report.get('output_file', '')}"
-                )
-            feishu_pushed = bool(res.get("ok"))
-            if not feishu_pushed:
-                print(f"⚠ 飞书推送失败: {res.get('error')}")
-
-        # 邮件推送：优先发 Word 附件；Word 缺失时兜底发一条文本说明
-        # 标题与附件名统一为「日报选题参考-YYYYMMDD-H点」（H 为报告运行时刻小时）
-        email_sent = False
-        if push_email:
-            print("📧 发送邮件 ...")
-            display_name = _report_display_name(report.get("output_file", ""))
-            if word_file:
-                res = self.email.send_report(
-                    word_file, subject=display_name, attachment_name=display_name
-                )
-            else:
-                res = self.email.send_text(
-                    f"今日媒体监控日报已生成，但 Word 转换不可用，Markdown 报告见: {report.get('output_file', '')}",
-                    subject=display_name,
-                )
-            email_sent = bool(res.get("ok"))
-            if not email_sent:
-                print(f"⚠ 邮件发送失败: {res.get('error')}")
-
         print(f"✅ 全流程完成")
         print(f"📁 产物: {raw_dir}/ | {topics_file.name} | {summaries_file.name} | {social_file.name if social_file.exists() else '(无社交板块)'} | {Path(word_file).name if word_file else '(无 Word)'}")
 
@@ -2189,8 +2123,6 @@ class MediaMonitorPipeline:
             "summaries_file": str(summaries_file),
             "social_summaries_file": str(social_file) if social_file.exists() else "",
             "screenshots_file": str(screenshots_file) if screenshots_file.exists() else "",
-            "feishu_pushed": feishu_pushed,
-            "email_sent": email_sent,
         }
 
 
@@ -2202,21 +2134,18 @@ if __name__ == "__main__":
     """直接运行时的命令行入口。
 
     用法:
-        python -m utils.media_monitor_pipeline                          # 完整流水线（含 Word 转换）
-        python -m utils.media_monitor_pipeline --scrape-only              # 只爬首页
-        python -m utils.media_monitor_pipeline --skip-to topics           # 从话题挑选开始
-        python -m utils.media_monitor_pipeline --skip-to summaries        # 从详情总结开始
-        python -m utils.media_monitor_pipeline --skip-to report           # 只渲染简报（含 Word；无截图缓存时会自动补截一次）
-        python -m utils.media_monitor_pipeline --skip-to send             # 不重新生成，直接把最新报告推送到飞书+邮箱（默认两者都发；也可用 --push-feishu / --push-email 指定其一）
-        python -m utils.media_monitor_pipeline --skip-social              # 完整流水线但跳过社交平台板块
-        python -m utils.media_monitor_pipeline --social-only              # 只抓社交平台+总结+渲染板块
-        python -m utils.media_monitor_pipeline --skip-screenshot          # 完整流水线但跳过信源网站截图板块
-        python -m utils.media_monitor_pipeline --headful                  # 截图使用有头模式（默认无头）
-        python -m utils.media_monitor_pipeline --no-word                  # 完整流水线但不转 Word
-        python -m utils.media_monitor_pipeline --fix-errors               # 补全最新报告里 API 报错的新闻
-        python -m utils.media_monitor_pipeline --push-feishu              # 完整流水线 + Word + 推送飞书
-        python -m utils.media_monitor_pipeline --push-email               # 完整流水线 + Word + 发送邮件
-        python -m utils.media_monitor_pipeline --daily                    # 每日定时入口（完整流水线+Word+推送飞书+邮件，异常兜底报警）
+        python -m utils.daily_report_pipeline                          # 完整流水线（含 Word 转换）
+        python -m utils.daily_report_pipeline --scrape-only              # 只爬首页
+        python -m utils.daily_report_pipeline --skip-to topics           # 从话题挑选开始
+        python -m utils.daily_report_pipeline --skip-to summaries        # 从详情总结开始
+        python -m utils.daily_report_pipeline --skip-to report           # 只渲染简报（含 Word；无截图缓存时会自动补截一次）
+        python -m utils.daily_report_pipeline --skip-social              # 完整流水线但跳过社交平台板块
+        python -m utils.daily_report_pipeline --social-only              # 只抓社交平台+总结+渲染板块
+        python -m utils.daily_report_pipeline --skip-screenshot          # 完整流水线但跳过信源网站截图板块
+        python -m utils.daily_report_pipeline --headful                  # 截图使用有头模式（默认无头）
+        python -m utils.daily_report_pipeline --no-word                  # 完整流水线但不转 Word
+        python -m utils.daily_report_pipeline --fix-errors               # 补全最新报告里 API 报错的新闻
+        python -m utils.daily_report_pipeline --daily                    # 每日定时入口（完整流水线 + Word，仅生成缓存，不推送）
     """
     skip_to: Optional[str] = None
     if "--skip-to" in sys.argv:
@@ -2230,11 +2159,9 @@ if __name__ == "__main__":
     headless = "--headful" not in sys.argv
     skip_word = "--no-word" in sys.argv
     fix_errors = "--fix-errors" in sys.argv
-    push_feishu = "--push-feishu" in sys.argv
-    push_email = "--push-email" in sys.argv
     daily = "--daily" in sys.argv
 
-    agent = MediaMonitorPipeline()
+    agent = DailyReportPipeline()
     base = agent.output_dir
     base.mkdir(parents=True, exist_ok=True)
 
@@ -2246,29 +2173,24 @@ if __name__ == "__main__":
     screenshots_file = base / "screenshots.json"
     now = datetime.now(BEIJING_TZ)
 
-    # ── 每日定时入口：完整流水线 + Word + 推送飞书（异常兜底发飞书文本报警）──
+    # ── 每日定时入口：完整流水线 + Word（仅生成缓存，不做任何推送）──
     if daily:
         print(f"🗓  每日定时任务启动 — {now.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
         try:
             result = agent.run_full_pipeline(
-                push_feishu=True, push_email=True, skip_word=skip_word,
+                skip_word=skip_word,
                 skip_screenshot=skip_screenshot, headless=headless,
             )
             if "error" in result:
                 print(f"❌ 流水线失败: {result['error']}")
-                agent.feishu.send_text(f"⚠️ 今日媒体监控日报生成失败: {result['error']}")
                 sys.exit(1)
-            if not result.get("feishu_pushed"):
-                print("⚠ 报告已生成但飞书推送失败，请检查 FEISHU_* 配置")
-            if not result.get("email_sent"):
-                print("⚠ 报告已生成但邮件发送失败，请检查 MEDIA_MONITOR_SMTP_* 配置")
+            print(
+                f"✅ 日报已生成: {result.get('report_file', '')} "
+                f"| Word: {result.get('word_file') or '(无)'}"
+            )
             sys.exit(0)
         except Exception as e:
             print(f"❌ 每日任务异常: {e}")
-            try:
-                agent.feishu.send_text(f"⚠️ 今日媒体监控日报任务异常: {e}")
-            except Exception:
-                pass
             sys.exit(1)
 
     # ── 仅社交平台：抓取 + 总结 + 渲染板块 ──────────────────
@@ -2319,52 +2241,6 @@ if __name__ == "__main__":
         if word_file:
             print(f"📄 Word 文档: {word_file}")
         sys.exit(0)
-
-    # ── 只发送最新报告：不重新生成，直接把已有最新报告推送到飞书 / 邮箱 ──
-    if skip_to == "send":
-        from utils.word import _find_latest_report
-
-        latest_md = _find_latest_report()
-        if latest_md is None:
-            print(f"❌ 未找到任何报告（{base} 下无 report_*.md），无法发送")
-            sys.exit(1)
-        print(f"📤 发送最新报告: {latest_md.name}")
-
-        # 优先发已有同名 Word；缺失且未 --no-word 时补转一次
-        word_file = ""
-        docx_path = latest_md.with_suffix(".docx")
-        if docx_path.exists():
-            word_file = str(docx_path)
-        elif not skip_word:
-            word_file = agent.convert_report_to_word(str(latest_md)) or ""
-
-        # 未显式指定推送目标时，飞书 + 邮箱都发（否则 --skip-to send 会是空操作）
-        do_feishu = push_feishu or not (push_feishu or push_email)
-        do_email = push_email or not (push_feishu or push_email)
-
-        # 邮件标题与附件名用「日报选题参考-YYYYMMDD-H点」（H 取报告文件名里的运行时刻小时）
-        display_name = _report_display_name(str(latest_md))
-        text_fallback = f"今日媒体监控日报见: {latest_md}"
-        any_ok = False
-
-        if do_feishu:
-            print("📤 推送到飞书群 ...")
-            res = agent.feishu.send_file(word_file) if word_file else agent.feishu.send_text(text_fallback)
-            if res.get("ok"):
-                any_ok = True
-            else:
-                print(f"⚠ 飞书推送失败: {res.get('error')}")
-        if do_email:
-            print("📧 发送邮件 ...")
-            res = (agent.email.send_report(word_file, subject=display_name, attachment_name=display_name)
-                   if word_file
-                   else agent.email.send_text(text_fallback, subject=display_name))
-            if res.get("ok"):
-                any_ok = True
-            else:
-                print(f"⚠ 邮件发送失败: {res.get('error')}")
-
-        sys.exit(0 if any_ok else 1)
 
     # Phase 1: 首页抓取
     if skip_to is None or scrape_only:
@@ -2477,32 +2353,3 @@ if __name__ == "__main__":
         print(f"📄 Word 文档: {word_file}")
     elif skip_word:
         print("⏭ 已跳过 Word 转换（--no-word）")
-
-    # 飞书推送（--push-feishu）：优先发 Word，缺失时发文本说明
-    if push_feishu:
-        print("📤 推送到飞书群 ...")
-        if word_file:
-            res = agent.feishu.send_file(word_file)
-        else:
-            res = agent.feishu.send_text(
-                f"今日媒体监控日报已生成，Markdown 报告见: {result.get('output_file', '')}"
-            )
-        if not res.get("ok"):
-            print(f"⚠ 飞书推送失败: {res.get('error')}")
-
-    # 邮件推送（--push-email）：优先发 Word 附件，缺失时发文本说明
-    # 标题与附件名统一为「日报选题参考-YYYYMMDD-H点」（H 为报告运行时刻小时）
-    if push_email:
-        print("📧 发送邮件 ...")
-        display_name = _report_display_name(result.get("output_file", ""))
-        if word_file:
-            res = agent.email.send_report(
-                word_file, subject=display_name, attachment_name=display_name
-            )
-        else:
-            res = agent.email.send_text(
-                f"今日媒体监控日报已生成，Markdown 报告见: {result.get('output_file', '')}",
-                subject=display_name,
-            )
-        if not res.get("ok"):
-            print(f"⚠ 邮件发送失败: {res.get('error')}")

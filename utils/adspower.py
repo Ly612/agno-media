@@ -106,7 +106,7 @@ class AdsPowerClient(object):
         """
         uid = user_id if user_id is not None else self.user_id
         if not uid:
-            raise RuntimeError("AdsPower user_id 未配置（MEDIA_MONITOR_ADSPOWER_USER_ID）")
+            raise RuntimeError("AdsPower user_id 未配置（DAILY_REPORT_ADSPOWER_USER_ID）")
 
         data = self._get(
             "/api/v1/browser/start",

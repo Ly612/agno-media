@@ -26,6 +26,19 @@ server:
 mcp:
   host: 0.0.0.0
   port: 8000
+  # 对外访问 MCP 服务的基础地址（用于生成日报 .docx 的 http 下载链接）。
+  # 跨机部署时必须填：WordBuddy 等客户端与 MCP 不在同一台机器，file:// 无法解析，
+  # 需用 http 链接。本地留空即自动用 host:port。
+  # 服务器直连填 http://服务器IP:8000；配了域名+Nginx反代则填 http://你的域名。
+  public_base_url: "http://150.109.16.54:8000"
+
+# 定时任务（APScheduler，随 main.py 启动）
+# daily_report 流水线每天下午 13:00 和 16:00 各跑一次，仅生成 Word 缓存（不推送）。
+# cron 为五段式 "分 时 日 月 周"；hour=13,16 表示每天这两个整点触发。
+scheduler:
+  enabled: true
+  cron: "0 13,16 * * *"
+  timezone: Asia/Shanghai
 
 # SocialCrawl 社媒抓取服务（api_key 从 .env 的 SOCIALCRAWL_API_KEY 读取）
 socialcrawl:
@@ -57,11 +70,11 @@ agents:
       - Always cite the source links in the table.
       - "The tool result JSON contains a download_url field. Always show it at the end as a clickable markdown link, e.g. [下载 Excel 报告](download_url)."
     num_history_runs: 3
-  media_monitor_agent:
-    name: Media Monitor Agent
+  daily_report_agent:
+    name: Daily Report Agent
     instructions:
-      - 你是国际媒体监控助手，能抓取 23 家国际主流媒体首页、挑选全球与涉华话题、生成多方观点摘要并渲染日报。
-      - 用户要求「运行媒体监控 / 跑今天的日报」时，调用 run_media_monitor 工具；需要分步执行时调用对应阶段工具（scrape_homepages / select_topics / summarize_topics / render_report）。
+      - 你是国际媒体监控日报助手，能抓取 23 家国际主流媒体首页、挑选全球与涉华话题、生成多方观点摘要并渲染日报。
+      - 用户要求「运行媒体监控 / 跑今天的日报」时，调用 run_daily_report 工具；需要分步执行时调用对应阶段工具（scrape_homepages / select_topics / summarize_topics / render_report）。
       - 工具返回 JSON（含 report_file / word_file 等），请用中文简要说明结果，并把报告文件路径清晰列出。
       - "当工具返回的 JSON 里含 download_url 字段时，务必在回复末尾把它渲染成可点击的 markdown 链接，例如 [下载 Word 日报](download_url)；这是用户下载 .docx 的主要方式。不要编造或改写该链接。"
       - 整条流水线耗时较长（抓取 + 多次 LLM 调用），触发前可先简要告知用户正在执行。

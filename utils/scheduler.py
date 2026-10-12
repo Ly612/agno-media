@@ -1,12 +1,14 @@
 """进程内定时任务：按 config.yaml 的 scheduler 段自动跑媒体监控流水线。
 
 用 APScheduler 的 BackgroundScheduler，随 main.py 启动。到点调用
-`MediaMonitorPipeline.run_full_pipeline(...)`，推送开关沿用 config.yaml 的
-media_monitor 段（push_feishu / push_email）。job 内 try/except 兜底，失败时
-可选发飞书文本报警，不影响服务进程。
+`DailyReportPipeline.run_full_pipeline(...)`，仅生成 Word 日报缓存到
+output/daily_report，不做任何推送。job 内 try/except 兜底，异常只打印日志、
+不影响服务进程。生成的最新 Word 由 MCP 工具（mcp_server.py 的
+latest_daily_report）按需读取返回。
 
 调度时间：优先用 `scheduler.cron`（五段式 "m h dom mon dow"），留空则退回
-`hour`/`minute`/`day_of_week`。无 BrightData key 时打印警告、不注册 job，
+`hour`/`minute`/`day_of_week`。默认配置为每天 13:00 和 16:00
+（cron: "0 13,16 * * *"）。无 BrightData key 时打印警告、不注册 job，
 不阻塞服务启动。
 
 用法（在 main.py 的 __main__ 块里）:
@@ -21,11 +23,9 @@ from typing import Optional
 
 from utils.settings import (
     BRIGHTDATA_API_KEY,
-    MM_PUSH_EMAIL,
-    MM_PUSH_FEISHU,
-    MM_SKIP_SCREENSHOT,
-    MM_SKIP_SOCIAL,
-    MM_SKIP_WORD,
+    DR_SKIP_SCREENSHOT,
+    DR_SKIP_SOCIAL,
+    DR_SKIP_WORD,
     SCHEDULER_CRON,
     SCHEDULER_DAY_OF_WEEK,
     SCHEDULER_ENABLED,
@@ -38,20 +38,18 @@ from utils.settings import (
 _scheduler = None
 
 
-def _run_media_monitor_job() -> None:
-    """定时 job 实际执行体：跑完整流水线，异常兜底发飞书文本报警。"""
+def _run_daily_report_job() -> None:
+    """定时 job 实际执行体：跑完整流水线，仅生成 Word 缓存，不做任何推送。"""
     # 延迟导入：pipeline 依赖较重，仅在真正触发时加载
-    from utils.media_monitor_pipeline import MediaMonitorPipeline
+    from utils.daily_report_pipeline import DailyReportPipeline
 
     print("⏰ [scheduler] 触发媒体监控流水线 ...")
     try:
-        pipeline = MediaMonitorPipeline()
+        pipeline = DailyReportPipeline()
         result = pipeline.run_full_pipeline(
-            skip_social=MM_SKIP_SOCIAL,
-            skip_screenshot=MM_SKIP_SCREENSHOT,
-            skip_word=MM_SKIP_WORD,
-            push_feishu=MM_PUSH_FEISHU,
-            push_email=MM_PUSH_EMAIL,
+            skip_social=DR_SKIP_SOCIAL,
+            skip_screenshot=DR_SKIP_SCREENSHOT,
+            skip_word=DR_SKIP_WORD,
         )
         if "error" in result:
             print(f"⚠ [scheduler] 流水线返回错误: {result['error']}")
@@ -63,13 +61,6 @@ def _run_media_monitor_job() -> None:
     except Exception as e:  # noqa: BLE001 - 定时 job 必须吞异常，否则会杀掉调度线程
         print(f"❌ [scheduler] 流水线异常: {e}")
         traceback.print_exc()
-        # best-effort 飞书报警（无凭证时 send_text 自行返回错误、不抛出）
-        try:
-            from utils.feishu_bot import FeishuBot
-
-            FeishuBot().send_text(f"媒体监控定时任务执行失败: {e}")
-        except Exception:
-            pass
 
 
 def _build_trigger_kwargs() -> dict:
@@ -139,9 +130,9 @@ def start_scheduler():
     scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
     trigger = CronTrigger(timezone=SCHEDULER_TIMEZONE, **trigger_kwargs)
     scheduler.add_job(
-        _run_media_monitor_job,
+        _run_daily_report_job,
         trigger=trigger,
-        id="media_monitor_daily",
+        id="daily_report_daily",
         name="媒体监控日报",
         replace_existing=True,
         max_instances=1,

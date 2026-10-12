@@ -1,7 +1,7 @@
 """信源网站首页截图工具：用 Playwright 抓取各媒体首页首屏截图。
 
 纯截图层，不含 LLM 逻辑。逐站点打开首页、按站点删除广告 / cookie 弹窗后
-截取首屏（1280×720，16:9），保存 PNG。供 agents.media_monitor_agent 在日报末尾
+截取首屏（1280×720，16:9），保存 PNG。供 agents.daily_report_agent 在日报末尾
 追加「信源网站首页截图」板块使用。
 
 浏览器优先用 AdsPower 指纹浏览器（各站点带自己的代理/指纹，翻墙更稳），通过
@@ -10,12 +10,12 @@
 
 依赖:
     - playwright（需 `playwright install chromium` 安装浏览器二进制，兜底路径用）
-    - AdsPower 客户端 + config.adspower_settings（.env 的 MEDIA_MONITOR_ADSPOWER_*）
+    - AdsPower 客户端 + config.adspower_settings（.env 的 DAILY_REPORT_ADSPOWER_*）
 
 用法:
     from utils.site_screenshot import capture_all
 
-    shots = capture_all(Path("output/media_monitor/screenshots"))
+    shots = capture_all(Path("output/daily_report/screenshots"))
 
     # 命令行:
     python -m tools.site_screenshot            # 优先 AdsPower，失败回退本地
@@ -37,7 +37,7 @@ VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 720
 
 # 截图站点列表（首页 URL，与各站点专属去广告选择器一一对应）。
-# 注意：此处 URL 为各媒体首页（如 bbc.com/），与 tools.media_monitor.MEDIA_SOURCES
+# 注意：此处 URL 为各媒体首页（如 bbc.com/），与 utils.daily_report_tool.MEDIA_SOURCES
 # 里的栏目页 URL（如 bbc.com/news）不同——截图取整站首页版面更直观。
 SCREENSHOT_SITES: List[str] = [
     "https://edition.cnn.com/",
@@ -318,9 +318,9 @@ def _capture_all_via_adspower(
     from utils.adspower import AdsPowerClient
 
     if not adspower_settings.enabled:
-        raise RuntimeError("AdsPower 未启用（MEDIA_MONITOR_ADSPOWER_ENABLED=false）")
+        raise RuntimeError("AdsPower 未启用（DAILY_REPORT_ADSPOWER_ENABLED=false）")
     if not adspower_settings.user_id:
-        raise RuntimeError("AdsPower user_id 未配置（MEDIA_MONITOR_ADSPOWER_USER_ID）")
+        raise RuntimeError("AdsPower user_id 未配置（DAILY_REPORT_ADSPOWER_USER_ID）")
 
     client = AdsPowerClient()
     if not client.is_up():
@@ -434,7 +434,7 @@ if __name__ == "__main__":
     """
     import sys
 
-    default_dir = Path(__file__).parent.parent / "output" / "media_monitor" / "screenshots"
+    default_dir = Path(__file__).parent.parent / "output" / "daily_report" / "screenshots"
     headless = "--headful" not in sys.argv
     use_adspower = "--local" not in sys.argv
 

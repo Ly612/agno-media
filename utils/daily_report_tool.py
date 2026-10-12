@@ -1,16 +1,16 @@
 """媒体监控抓取工具：调用 BrightData API 批量抓取 23 家国际主流媒体首页。
 
 纯抓取层，不包含 LLM Agent 逻辑。话题挑选、摘要生成、简报渲染等请使用
-agents.media_monitor_agent.MediaMonitorAgent。
+agents.daily_report_agent.DailyReportAgent。
 
 依赖:
     - requests
     - BrightData API key（环境变量 BRIGHTDATA_API_KEY / BRIGHTDATA_ZONE）
 
 用法:
-    from utils.media_monitor_tool import MediaMonitorToolkit
+    from utils.daily_report_tool import DailyReportToolkit
 
-    scraper = MediaMonitorToolkit()
+    scraper = DailyReportToolkit()
     result = scraper.scrape_all_homepages()
 """
 
@@ -29,7 +29,7 @@ from utils.settings import settings
 
 # ── 常量 ──────────────────────────────────────────────────
 BEIJING_TZ = timezone(timedelta(hours=8))
-DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "output" / "media_monitor"
+DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "output" / "daily_report"
 TRUNCATE_LIMIT = 8000
 BRIGHTDATA_ENDPOINT = "https://api.brightdata.com/request"
 
@@ -185,10 +185,10 @@ MEDIA_SOURCES: List[Dict[str, str]] = [
 
 
 # ═══════════════════════════════════════════════════════════
-# MediaMonitorToolkit（纯抓取层）
+# DailyReportToolkit（纯抓取层）
 # ═══════════════════════════════════════════════════════════
 
-class MediaMonitorToolkit(Toolkit):
+class DailyReportToolkit(Toolkit):
     """媒体首页抓取工具：通过 BrightData API 抓取 23 家国际主流媒体首页。
 
     输出原始 Markdown 到磁盘，供后续 LLM Agent 分析使用。
@@ -196,7 +196,7 @@ class MediaMonitorToolkit(Toolkit):
     Args:
         brightdata_key:  BrightData API 密钥（默认从 config.settings 读取，env: BRIGHTDATA_API_KEY）
         brightdata_zone:  BrightData zone 名称（默认从 config.settings 读取，env: BRIGHTDATA_ZONE）
-        output_dir:       输出目录（默认项目根/output/media_monitor）
+        output_dir:       输出目录（默认项目根/output/daily_report）
     """
 
     def __init__(
@@ -205,7 +205,7 @@ class MediaMonitorToolkit(Toolkit):
         brightdata_zone: Optional[str] = None,
         output_dir: Optional[str] = None,
     ):
-        super().__init__(name="media_monitor")
+        super().__init__(name="daily_report")
 
         self.brightdata_key = brightdata_key or settings.api_key
         self.brightdata_zone = brightdata_zone or settings.zone
@@ -362,12 +362,12 @@ if __name__ == "__main__":
     """直接运行时测试抓取功能。
 
     用法:
-        python -m tools.media_monitor
-        python -m tools.media_monitor BBC      # 抓取单个媒体
+        python -m utils.daily_report_tool
+        python -m utils.daily_report_tool BBC      # 抓取单个媒体
     """
     import sys
 
-    scraper = MediaMonitorToolkit()
+    scraper = DailyReportToolkit()
 
     if len(sys.argv) > 1:
         # 抓取单个媒体 — 使用内部实现
