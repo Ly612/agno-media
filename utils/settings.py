@@ -104,6 +104,9 @@ ADSPOWER_API_URL = (
     or "http://local.adspower.net:50325"
 ).rstrip("/")
 ADSPOWER_USER_ID = os.getenv("DAILY_REPORT_ADSPOWER_USER_ID", "")
+# api-key：服务器 headless 模式 / 开启安全校验时必填。有值时本地 API 请求会带
+# Authorization: Bearer <api-key>。桌面 GUI 模式通常留空即可。
+ADSPOWER_API_KEY = os.getenv("DAILY_REPORT_ADSPOWER_API_KEY", "")
 ADSPOWER_ENABLED = os.getenv("DAILY_REPORT_ADSPOWER_ENABLED", "true").lower() not in (
     "false",
     "0",
@@ -143,6 +146,7 @@ class _ApifyConf:
 class _AdsPowerConf:
     api_url = ADSPOWER_API_URL
     user_id = ADSPOWER_USER_ID
+    api_key = ADSPOWER_API_KEY
     enabled = ADSPOWER_ENABLED
 
 
