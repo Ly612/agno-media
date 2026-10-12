@@ -1986,10 +1986,13 @@ class DailyReportPipeline:
             生成的 docx 路径；pypandoc / pandoc 不可用或转换失败时返回 None。
         """
         try:
-            from utils.word import MarkdownToDocx
+            from utils.word import MarkdownToDocx, WordConversionError
             docx = MarkdownToDocx.transfer(report_file)
             print(f"   ✓ Word 转换完成 → {docx}")
             return docx
+        except WordConversionError as e:
+            print(f"⚠ Word 转换跳过（依赖缺失）: {e}")
+            return None
         except Exception as e:
             print(f"⚠ Word 转换失败（跳过）: {e}")
             return None

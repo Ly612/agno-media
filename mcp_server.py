@@ -27,10 +27,11 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ResourceLink, TextContent
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from utils.exporter import export_to_excel
 from utils.serpapi_tools import google_news as _google_news
@@ -104,10 +105,21 @@ def _run_pipeline_background() -> None:
         if "error" in result:
             summary = f"流水线返回错误: {result['error']}"
         else:
-            ok = True
-            summary = (
-                f"日报已生成: {result.get('word_file') or result.get('report_file', '')}"
-            )
+            word_file = result.get("word_file") or ""
+            report_file = result.get("report_file") or ""
+            if word_file:
+                ok = True
+                summary = f"日报已生成: {word_file}"
+            elif DR_SKIP_WORD:
+                ok = True
+                summary = f"日报已生成（按配置跳过 Word 转换）: {report_file}"
+            else:
+                # 流水线跑通但没产出 Word：多半是缺 pypandoc / 系统 pandoc
+                ok = False
+                summary = (
+                    f"日报 Markdown 已生成，但未产出 Word: {report_file}"
+                    "（Word 转换被跳过，通常因缺少 pypandoc 或系统 pandoc）"
+                )
     except Exception as e:  # noqa: BLE001 - 后台线程必须吞异常
         summary = f"流水线异常: {e}"
         traceback.print_exc()
@@ -381,23 +393,42 @@ async def download_daily_report(request: Request) -> FileResponse:
     )
 
 
-class BearerAuthMiddleware(BaseHTTPMiddleware):
+class BearerAuthMiddleware:
     """校验 Authorization: Bearer <token>。MCP_AUTH_TOKEN 为空时放行所有请求。
+
+    纯 ASGI 中间件（非 BaseHTTPMiddleware）：只读请求头、原样透传响应流，
+    不做响应缓冲。这对 /download 的 FileResponse 大文件流很关键——
+    BaseHTTPMiddleware 会包裹整个响应体，某些 starlette/uvicorn 版本下
+    会导致流式下载挂起（浏览器一直转圈「加载不出来」）。
 
     /download 路径豁免（其自带 token 校验，支持 header 或 ?token= 查询参数），
     以便文件卡片 / 浏览器点击下载时无需手动加 Authorization 头。
     """
 
-    async def dispatch(self, request: Request, call_next):
-        if MCP_AUTH_TOKEN and not request.url.path.startswith("/download/"):
-            auth = request.headers.get("authorization", "")
-            expected = f"Bearer {MCP_AUTH_TOKEN}"
-            if auth != expected:
-                return JSONResponse(
-                    {"error": "Unauthorized: 无效或缺失的 Authorization 头"},
-                    status_code=401,
-                )
-        return await call_next(request)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not MCP_AUTH_TOKEN:
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path.startswith("/download/"):  # 豁免，交给下载端点自带校验
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        auth = headers.get("authorization", "")
+        if auth != f"Bearer {MCP_AUTH_TOKEN}":
+            response = JSONResponse(
+                {"error": "Unauthorized: 无效或缺失的 Authorization 头"},
+                status_code=401,
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
 
 
 if __name__ == "__main__":
@@ -409,7 +440,7 @@ if __name__ == "__main__":
         Route(
             "/download/daily_report/{filename}",
             download_daily_report,
-            methods=["GET"],
+            methods=["GET", "HEAD"],
         )
     )
     app.add_middleware(BearerAuthMiddleware)

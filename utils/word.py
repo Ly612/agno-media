@@ -19,13 +19,49 @@
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import List, Optional
 
-import pypandoc
-
 DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "output" / "daily_report"
+
+
+class WordConversionError(RuntimeError):
+    """Word 转换不可用（缺少 pypandoc 或系统 pandoc）时抛出，便于上层区分原因。"""
+
+
+def _require_pandoc() -> "object":
+    """导入 pypandoc 并校验系统 pandoc 二进制可用，返回 pypandoc 模块。
+
+    分两步给出可操作的错误信息：
+      1. pypandoc 未安装（Python 包缺失）；
+      2. pandoc 二进制缺失（pypandoc 只是壳，真正转换靠系统 pandoc）。
+    """
+    try:
+        import pypandoc  # 延迟导入：缺包时不该让整个模块 import 失败
+    except ImportError as e:
+        raise WordConversionError(
+            "缺少 pypandoc，无法转换 Word。请安装："
+            "`uv pip install pypandoc`（或 `pip install pypandoc`）。"
+        ) from e
+
+    # pypandoc 找不到 pandoc 时，get_pandoc_path() 会抛 OSError
+    try:
+        pandoc_path = pypandoc.get_pandoc_path()
+    except OSError as e:
+        raise WordConversionError(
+            "系统未找到 pandoc 二进制（pypandoc 依赖它完成转换）。请安装："
+            "CentOS `sudo yum install -y pandoc`；"
+            "Debian/Ubuntu `sudo apt install -y pandoc`；"
+            "macOS `brew install pandoc`。"
+        ) from e
+
+    if not pandoc_path or not shutil.which(str(pandoc_path)):
+        raise WordConversionError(
+            f"pandoc 路径不可用（解析到 {pandoc_path!r}）。请确认 pandoc 已安装且在 PATH 中。"
+        )
+    return pypandoc
 
 
 def _find_latest_report() -> Optional[Path]:
@@ -80,6 +116,8 @@ class MarkdownToDocx(object):
         in_path = Path(input_file)
         if not in_path.exists():
             raise FileNotFoundError(f"输入文件不存在: {in_path}")
+
+        pypandoc = _require_pandoc()
 
         out_path = Path(output_file) if output_file else in_path.with_suffix(".docx")
         out_path.parent.mkdir(parents=True, exist_ok=True)
