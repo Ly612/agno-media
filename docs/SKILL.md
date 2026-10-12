@@ -1,6 +1,6 @@
 ---
 name: 新闻检索与报告
-description: 搜索最新新闻、网页信息、Facebook 主页帖子，并可导出 Excel 报告。当用户询问新闻、最新消息、时事、热点、某话题最新动态，查询 Facebook 主页内容，或需要搜索资料、导出/下载报告时使用。
+description: 搜索最新新闻、网页信息、按关键词搜索 Facebook 公开帖子，并可导出 Excel 报告。当用户询问新闻、最新消息、时事、热点、某话题最新动态，按关键词搜索 Facebook 帖子，或需要搜索资料、导出/下载报告时使用。
 ---
 
 # 新闻检索与报告
@@ -15,7 +15,7 @@ description: 搜索最新新闻、网页信息、Facebook 主页帖子，并可�
 | --- | --- |
 | `google_news` | 查询新闻、时事、最新动态 |
 | `google_search` | 查询一般性网页信息、资料、解释 |
-| `facebook_profile_posts` | 抓取指定 Facebook 主页的帖子（含点赞/评论等互动数据） |
+| `facebook_search_posts` | 按关键词搜索 Facebook 公开帖子（含点赞/评论等互动数据） |
 | `export_report` | 把搜索结果导出为 Excel 并返回下载链接 |
 
 ## 触发场景
@@ -24,7 +24,7 @@ description: 搜索最新新闻、网页信息、Facebook 主页帖子，并可�
 
 - 询问新闻、最新消息、时事、热点、行业动态、某话题的最新进展。
 - 查询一般性信息、资料、概念解释、背景介绍。
-- 查询某个 Facebook 主页 / 公共主页的帖子、动态、内容。
+- 按关键词搜索 Facebook 上关于某话题 / 品牌 / 事件的公开帖子。
 - 要求搜索、检索、查一下某个内容。
 - 要求导出、下载、生成 Excel / 报告 / 表格文件。
 
@@ -33,12 +33,12 @@ description: 搜索最新新闻、网页信息、Facebook 主页帖子，并可�
 1. **判断类型并选择工具**
    - 新闻 / 时事 / 最新动态类问题 → 调用 `google_news`。
    - 一般信息 / 资料 / 非新闻类问题 → 调用 `google_search`。
-   - 涉及某个 Facebook 主页（用户给出 facebook.com 链接或主页名）→ 调用 `facebook_profile_posts`。
+   - 涉及 Facebook 帖子搜索（用户想搜某关键词 / 话题 / 品牌的公开帖子）→ 调用 `facebook_search_posts`。
 
 2. **传递参数**
    - 若用户指定了数量（如“5 条”“10 个”“top 20”），把该数字作为 `num` 参数传入；未指定时使用默认值。
    - 若用户限定了地区或语言（如“国内新闻”“英文结果”），据此设置 `gl`（国家代码，如 cn、us）、`hl`（语言代码，如 zh-cn、en）。
-   - Facebook 查询：把主页地址作为 `url` 传入；若用户限定时间（如“最近 3 天”“9 月以来”），用 `recent_days` 或 `since`（YYYY-MM-DD）。
+   - Facebook 查询：把用户的关键词 / 话题作为 `query` 传入；若用户限定时间（如“最近 3 天”“9 月以来”），用 `max_age_days` 或 `start_date` / `end_date`（YYYY-MM-DD）。工具会自动翻页并按帖子 id 去重。
 
 3. **导出报告（按需）**
    - 当用户要求导出 / 下载 / 生成 Excel 时，调用 `export_report`，并把返回的 `download_url` 以可点击链接形式展示。
