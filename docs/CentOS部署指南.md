@@ -80,7 +80,7 @@ git checkout dev   # 若功能在 dev 分支
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
-uv pip install "agno[os,sqlite]" openai pyyaml python-dotenv google-search-results openpyxl greenlet
+uv pip install "agno[os,sqlite]" openai pyyaml python-dotenv google-search-results openpyxl greenlet requests apscheduler "mcp>=1.2.0,<2"
 ```
 
 或用 pip：
@@ -88,8 +88,40 @@ uv pip install "agno[os,sqlite]" openai pyyaml python-dotenv google-search-resul
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install "agno[os,sqlite]" openai pyyaml python-dotenv google-search-results openpyxl greenlet
+pip install "agno[os,sqlite]" openai pyyaml python-dotenv google-search-results openpyxl greenlet requests apscheduler "mcp>=1.2.0,<2"
 ```
+
+> 也可直接按 `pyproject.toml` 一次性装齐（含可选 extra）：
+> ```bash
+> uv pip install -e ".[daily-report]"
+> ```
+> `daily-report` extra 含 `pypandoc`（Markdown→Word）与 `playwright`（截图）。
+> **注意**：`pypandoc` 只是 pandoc 的 Python 壳，**还需另装系统 pandoc 二进制**，见下。
+
+### 2.5 安装 Word 转换的系统依赖 pandoc（生成日报 Word 必需）
+
+日报的 Markdown→Word 转换依赖系统 `pandoc` 二进制。**只装 `pypandoc` 不够**：
+pypandoc 只是调用 pandoc 的壳，缺 pandoc 时转换会静默跳过，表现为
+**只生成 `.md`、没有 `.docx`**。
+
+```bash
+# CentOS / RHEL
+sudo yum install -y pandoc        # CentOS 7/8；较新版用 dnf
+# Debian / Ubuntu
+sudo apt install -y pandoc
+
+# 验证
+pandoc --version
+```
+
+> 若 `yum` 源里 pandoc 版本过老，可从 https://github.com/jgm/pandoc/releases
+> 下载对应架构的静态包解压后把 `pandoc` 放进 PATH。
+>
+> 装好后可单独验证转换：
+> ```bash
+> .venv/bin/python -m utils.word output/daily_report/report_*.md
+> ```
+> 成功会打印 `✓ 转换完成` 并生成同名 `.docx`。
 
 ### 3. 配置 token（.env）
 
@@ -401,7 +433,8 @@ pkill -f "next start"   # 停前端
 cd /opt/agno-media
 git pull
 source .venv/bin/activate
-pip install "agno[os,sqlite]" openai pyyaml python-dotenv google-search-results openpyxl greenlet  # 依赖有更新时
+uv pip install -e ".[daily-report]"   # 依赖有更新时（含 pypandoc + playwright）
+pip install "agno[os,sqlite]" openai pyyaml python-dotenv google-search-results openpyxl greenlet requests apscheduler "mcp>=1.2.0,<2"  # 或按需补齐
 pkill -f main.py
 nohup .venv/bin/python main.py > logs/backend.log 2>&1 &
 ```
@@ -416,5 +449,6 @@ nohup .venv/bin/python main.py > logs/backend.log 2>&1 &
 | 下载链接点击 404/打不开 | 检查 `config.yaml` 的 `public_base_url` 是否填对服务器 IP |
 | 后端启动报 401 | `.env` 的 `AI_API_KEY` / `SERPAPI_API_KEY` 未填或无效 |
 | 启动报 `No module named 'greenlet'` | 缺 greenlet 依赖，执行 `pip install greenlet`（或 `pip install "sqlalchemy[asyncio]" greenlet`）后重启 |
+| **日报只生成 `.md`、没有 `.docx`** | Word 转换依赖系统 pandoc。先 `pandoc --version` 确认是否安装；没装则 `sudo yum install -y pandoc`（或 apt）。再确认 Python 侧 `pypandoc` 已装：`.venv/bin/python -c "import pypandoc"`。手动验证：`.venv/bin/python -m utils.word output/daily_report/report_*.md`，成功会打印 `✓ 转换完成`。此前的版本缺依赖时会**静默跳过**（日志里是`⚠ Word 转换跳过（依赖缺失）`），现已改为打印明确原因 |
 | 前端连不上后端 | endpoint 必须填 `http://SERVER_IP:7777`，不是 localhost |
 | 进程重启后丢失 | nohup 仅后台运行，重启服务器需手动再启；需开机自启请改用 systemd |
