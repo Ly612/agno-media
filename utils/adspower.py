@@ -43,15 +43,22 @@ class AdsPowerClient(object):
     Args:
         api_url: 本地 API 根地址（默认 config.adspower_settings.api_url）
         user_id: 固定 profile 的 user_id（默认 config.adspower_settings.user_id）
+        api_key: Local API 的 api-key（默认 config.adspower_settings.api_key）。
+                 服务器 headless 模式 / 开启安全校验时必填：有值则请求带
+                 Authorization: Bearer <api-key>。桌面 GUI 模式通常留空。
     """
 
     def __init__(
         self,
         api_url: Optional[str] = None,
         user_id: Optional[str] = None,
+        api_key: Optional[str] = None,
     ):
         self.api_url = (api_url or adspower_settings.api_url).rstrip("/")
         self.user_id = user_id if user_id is not None else adspower_settings.user_id
+        self.api_key = (
+            api_key if api_key is not None else getattr(adspower_settings, "api_key", "")
+        )
 
     # ── 底层：本地 API GET（强制直连、不走代理）─────────────
 
@@ -60,13 +67,20 @@ class AdsPowerClient(object):
 
         用 build_opener(ProxyHandler({})) 显式禁用代理——本地回环地址绝不走代理，
         否则本机若设了 http_proxy 环境变量会把 127.0.0.1 也代理掉导致连不上。
+
+        配了 api_key 时带上 Authorization: Bearer <api-key> 头（服务器 headless
+        模式 / 开启安全校验时必需）。
         """
         query = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
         url = f"{self.api_url}{path}"
         if query:
             url = f"{url}?{query}"
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(url, headers=headers)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(url, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
         try:
             return json.loads(raw)
@@ -106,7 +120,7 @@ class AdsPowerClient(object):
         """
         uid = user_id if user_id is not None else self.user_id
         if not uid:
-            raise RuntimeError("AdsPower user_id 未配置（MEDIA_MONITOR_ADSPOWER_USER_ID）")
+            raise RuntimeError("AdsPower user_id 未配置（DAILY_REPORT_ADSPOWER_USER_ID）")
 
         data = self._get(
             "/api/v1/browser/start",

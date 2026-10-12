@@ -20,7 +20,7 @@ dependencies = [
 # 媒体监控的重依赖：缺失时对应阶段自动跳过，核心流程仍可运行。
 # - pypandoc：Markdown 转 Word（另需系统 pandoc 二进制）
 # - playwright：信源网站首页截图（另需 `playwright install chromium`）
-media-monitor = [
+daily-report = [
     "pypandoc>=1.17",
     "playwright==1.52.0",
 ]

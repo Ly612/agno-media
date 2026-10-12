@@ -1,7 +1,7 @@
 """社交平台抓取工具：通过 Apify API 抓取 Facebook / X / Google News 的关键字数据。
 
 纯抓取层，不包含 LLM Agent 逻辑。贴文挑选、内容总结、简报渲染等请使用
-agents.media_monitor_agent.MediaMonitorAgent。
+agents.daily_report_agent.DailyReportAgent。
 
 三个 Apify actor：
     - Facebook:    danek/facebook-search-ppr          (l6CUZt8H0214D3I0N)
@@ -37,7 +37,7 @@ from utils.settings import apify_settings
 # ── 常量 ──────────────────────────────────────────────────
 BEIJING_TZ = timezone(timedelta(hours=8))
 APIFY_ENDPOINT = "https://api.apify.com/v2"
-DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "output" / "media_monitor" / "social"
+DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "output" / "daily_report" / "social"
 
 # Apify actor ID（与 console.apify.com/actors/{id}/input 对应）
 FACEBOOK_ACTOR_ID = "l6CUZt8H0214D3I0N"
@@ -121,7 +121,7 @@ class ApifyScraperToolkit(Toolkit):
 
     Args:
         apify_api_key: Apify API 密钥（默认从 config.apify_settings 读取，env: APIFY_API_KEY）
-        output_dir:    输出目录（默认项目根/output/media_monitor/social）
+        output_dir:    输出目录（默认项目根/output/daily_report/social）
     """
 
     def __init__(

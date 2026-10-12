@@ -219,11 +219,154 @@ MCP_AUTH_TOKEN=自定义一个足够复杂的密钥
   - Key：`Authorization`
   - Value：`Bearer 你在.env里设置的MCP_AUTH_TOKEN`
 
-保存后豆包即可调用三个工具：`google_news`、`google_search`、`export_report`。
+保存后豆包即可调用以下工具：`google_news`、`google_search`、`facebook_profile_posts`、`export_report`、`latest_daily_report`、`trigger_daily_report`。
 
-> 验证鉴权：不带 Header 请求会返回 401，带正确 Bearer token 返回 200。
+> `trigger_daily_report`：**手动触发**一次日报生成。后台异步执行（抓取+LLM，通常
+> 数分钟），调用后立即返回「已开始」；同一时刻只跑一个任务（加锁）。生成完成后用
+> `latest_daily_report` 取结果。适合用户想「现在立刻刷新一份」、不等定时任务时。
 
-> 注意：Excel 下载链接仍由 AgentOS 后端（7777）的 `/download` 提供，因此 MCP Server 和后端需同时运行。
+> `latest_daily_report`：**不运行流水线**，直接返回 `output/daily_report/` 下最近
+> 生成的 Word 日报。日报由进程内定时任务（每天 13:00、16:00）在后台产出，MCP 侧
+> 只做读取。返回**富内容**：一个文件卡片（`ResourceLink`，指向 http 下载链接）+
+> 一段 JSON 元信息（含 `download_url`）。客户端会把它渲染成**可点击的下载组件**，
+> 用户无需手动复制路径。
+
+#### 日报下载端点与跨机部署（重要）
+
+日报 .docx 的下载由 **MCP Server（8000）自带**的端点提供，路径
+`/download/daily_report/{filename}`，**不依赖** AgentOS 后端（7777）。
+
+由于 WordBuddy 等客户端通常与 MCP Server **不在同一台机器**，文件卡片用的是
+http 链接而非本机 `file://`，因此必须在 `config.yaml` 的 `mcp` 段填**对外可访问**
+的基础地址：
+
+```yaml
+mcp:
+  host: 0.0.0.0
+  port: 8000
+  public_base_url: "http://SERVER_IP:8000"   # 或 http://你的域名（配了 Nginx 反代时）
+```
+
+> 留空会回退到 `localhost:8000`，跨机点击下载会失败，务必填成客户端能访问到的地址。
+
+下载端点同样受 `MCP_AUTH_TOKEN` 保护，支持两种带 token 的方式：
+`Authorization: Bearer <token>` 头，或 URL 后加 `?token=<token>`。配了 token 时
+`download_url` 会**自动带上 `?token=`**，文件卡片点一下即可下载。放行 8000 端口后
+即可生效。
+
+> 验证鉴权：不带 Header / token 请求 `/mcp` 会返回 401，带正确 Bearer token 返回 200。
+
+> 说明：`export_report` 的 Excel 下载链接仍由 AgentOS 后端（7777）的 `/download`
+> 提供；若只用日报功能，可只跑 MCP Server（8000）。
+
+---
+
+## 四点八、浏览器截图初始化（Chromium 与 AdsPower，可选）
+
+日报流水线的「信源网站首页截图」板块（`utils/site_screenshot.py`）需要一个浏览器。
+它有**两条路径，自动择优回退**：
+
+1. **首选 AdsPower 指纹浏览器**：各站点带自己的代理/指纹，翻墙更稳。通过本地 API
+   启动固定 profile，再用 Playwright `connect_over_cdp` 接管。
+2. **回退本地 Chromium**（Playwright 自带）：AdsPower 不可用（未启用 / 未装 /
+   user_id 无效 / 客户端没开）时自动走这条，保证截图板块不缺失。
+
+> 截图整个板块都是**可选**的：两条路径都不可用时，该阶段会被跳过，日报照常生成
+> （只是没有截图板块）。也可用 `config.yaml` 的 `daily_report.skip_screenshot: true`
+> 彻底关掉截图。
+
+### A. 本地 Chromium（回退路径）初始化
+
+这是最简单、服务器上最稳的方式，**无需 AdsPower**。
+
+```bash
+cd /root/agno-media
+source .venv/bin/activate
+
+# 1) 装 playwright（若装依赖时没带上）
+uv pip install playwright        # 或 pip install playwright
+
+# 2) 下载 Chromium 浏览器二进制
+playwright install chromium
+
+# 3) CentOS/Linux 还需装 Chromium 运行所需的系统库（关键，否则启动即崩）
+playwright install-deps chromium
+# 若上面命令在老版 CentOS 不可用，手动装常见依赖：
+# sudo yum install -y nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon \
+#   at-spi2-core libXcomposite libXdamage libXrandr mesa-libgbm pango alsa-lib
+```
+
+要点：
+- 服务器上务必**无头模式**运行（流水线默认 `headless=True`，无需改）。
+- 若 playwright 精确版本的浏览器下不动，可设环境变量
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome` 指向任意已有的完整 Chromium，
+  代码会优先用它（见 `_find_chromium_executable`）。
+- 无显示器的服务器用无头即可，**不需要** Xvfb（无头 Chromium 自带虚拟渲染）。
+
+验证：
+
+```bash
+.venv/bin/python -m utils.site_screenshot --local   # 强制走本地 Chromium 测一遍
+```
+
+### B. AdsPower（首选路径）初始化
+
+AdsPower 是**带 GUI 的桌面客户端**，且 **Local API 需付费版**权限。服务器（无显示器）
+上要用它，需以**无头 + api-key** 方式启动，并用 Xvfb 提供虚拟显示。
+
+**1) 配置项**（`.env`）：
+
+```
+DAILY_REPORT_ADSPOWER_API_URL=http://local.adspower.net:50325  # 默认即可，本机回环
+DAILY_REPORT_ADSPOWER_USER_ID=你的profile的user_id            # 必填，否则直接回退本地
+DAILY_REPORT_ADSPOWER_API_KEY=你的APIKEY                       # 服务器headless/开启安全校验时必填
+DAILY_REPORT_ADSPOWER_ENABLED=true                             # false 则跳过 AdsPower
+```
+
+> `DAILY_REPORT_ADSPOWER_API_KEY` 有值时，代码会给所有本地 API 请求自动带上
+> `Authorization: Bearer <api-key>`。桌面 GUI 模式通常可留空；服务器 headless 模式
+> 必填（与下面启动命令的 `--api-key` 一致）。
+
+> `user_id` 是 AdsPower 里某个浏览器 profile 的唯一 ID（在客户端「环境管理」里
+> 导入/创建 profile 后得到）。各站点的翻墙代理应配在这个 profile 上。
+
+**2) 桌面环境（有显示器 / 本地 Mac）**：
+装好 AdsPower 客户端 → 登录付费账号 → 「自动化 → API」确认接口状态正常（默认端口
+50325）→ 创建/导入一个 profile 并记下 `user_id` → 保持客户端常驻运行即可。
+
+**3) Linux 服务器（无显示器，无头模式）**：
+
+```bash
+# 装虚拟显示服务
+sudo yum install -y xorg-x11-server-Xvfb      # 或 apt: sudo apt install -y xvfb
+
+# 以无头 + api-key 启动 AdsPower 的 Local API（在 AdsPower 安装目录下执行）
+xvfb-run -a adspower_global \
+  --headless=true \
+  --api-key=你的APIKEY \
+  --api-port=50325 \
+  --no-sandbox
+# API key 在 AdsPower「自动化 → API」里 Generate 获取；启动后 CLI 会打印可用地址
+```
+
+> 鉴权说明：headless 模式（及开启安全校验时）Local API 必须带 api-key。本项目已
+> 支持：只要在 `.env` 配了 `DAILY_REPORT_ADSPOWER_API_KEY`，`utils/adspower.py`
+> 会自动给请求加 `Authorization: Bearer <api-key>`（与启动命令的 `--api-key` 填同
+> 一个值）。不配 key 则不带该头（适用于桌面 GUI 模式）。
+
+验证：
+
+```bash
+.venv/bin/python -m utils.adspower status        # 探活：✅ 在线 / ❌ 不可用
+.venv/bin/python -m utils.adspower start         # 启动 profile，打印 CDP ws 端点
+.venv/bin/python -m utils.site_screenshot        # 优先 AdsPower，失败回退本地
+```
+
+### C. 建议
+
+服务器部署**优先用本地 Chromium（路径 A）**：无需付费、无需 GUI、无需 Xvfb、无代码
+改动，最省心。AdsPower 适合「各站点需要不同代理/指纹才能稳定访问」的场景，且需接受
+上面的代码限制或自行补 Bearer 头。
 
 ---
 

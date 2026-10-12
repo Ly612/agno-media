@@ -18,14 +18,14 @@ agno-media/
 │   ├── web_agent.py
 │   ├── media_agent.py
 │   ├── news_agent.py
-│   └── media_monitor_agent.py   # 国际媒体监控（工具型 Agent）
+│   └── daily_report_agent.py   # 国际媒体监控日报（工具型 Agent）
 └── utils/               # 通用模块
     ├── config.py        # 加载 config.yaml
     ├── settings.py      # token 从 .env，其余从 yaml
     ├── model.py         # OpenAILike 接第三方网关
     ├── db.py            # SqliteDb 单例
     ├── scheduler.py     # 进程内定时任务（APScheduler）
-    └── media_monitor_*.py  # 媒体监控流水线及其工具（抓取/社交/截图/Word/推送）
+    └── daily_report_*.py  # 媒体监控流水线及其工具（抓取/社交/截图/Word/推送）
 ```
 
 ## 环境要求
@@ -139,10 +139,10 @@ git push -u origin feature/你的功能
 # 之后可在 GitHub 发起 Pull Request 合并，或本地合并后推送
 ```
 
-## Media Monitor Agent（媒体监控）
+## Daily Report Agent（媒体监控日报）
 
 从 `qf-toolkit` 移植的「LLM 驱动五阶段媒体监控流水线」，在界面上显示为一个
-**Media Monitor Agent**。它抓取 23 家国际主流媒体首页，用 LLM 挑选全球与涉华
+**Daily Report Agent**。它抓取 23 家国际主流媒体首页，用 LLM 挑选全球与涉华
 话题、生成多方观点摘要，渲染成 Markdown 日报并转 Word，可选推送飞书/邮件。
 
 ### 五个阶段
@@ -151,7 +151,7 @@ git push -u origin feature/你的功能
 2. **话题挑选**（LLM）：从首页内容里挑出重要的全球 / 涉华话题。
 3. **详情总结**（LLM + BrightData 正文抓取）：逐话题抓正文、生成多方观点摘要。
 4. **社交平台板块**（Apify + LLM）：抓 Facebook / X / Google News 贴文并总结。
-5. **简报渲染**：汇总为 Markdown 日报 → 转 Word → 可选推送飞书 / 邮件。
+5. **简报渲染**：汇总为 Markdown 日报 → 转 Word，产物落盘到 `output/daily_report/`。
 
 ### 外部服务与开关（全部可选，无凭证则对应阶段自动跳过）
 
@@ -160,54 +160,86 @@ git push -u origin feature/你的功能
 | 服务 | 环境变量 | 缺失时 |
 | --- | --- | --- |
 | BrightData（核心抓取） | `BRIGHT_DATA_API_KEY` / `BRIGHT_DATA_ZONE` | 无法跑核心三阶段 |
-| 专用 LLM 网关（可选） | `MEDIA_MONITOR_LLM_*` | 回落到 `AI_API_KEY` / config 的 `ai` 段 |
+| 专用 LLM 网关（可选） | `DAILY_REPORT_LLM_*` | 回落到 `AI_API_KEY` / config 的 `ai` 段 |
 | Apify（社交板块） | `APIFY_API_KEY` | 跳过社交板块 |
-| 飞书推送 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_CHAT_ID` | 跳过飞书推送 |
-| 邮件推送 | `MEDIA_MONITOR_SMTP_*` | 跳过邮件推送 |
-| AdsPower（截图指纹浏览器） | `MEDIA_MONITOR_ADSPOWER_*` | 回退本地 Chromium 截图 |
+| AdsPower（截图指纹浏览器） | `DAILY_REPORT_ADSPOWER_*` | 回退本地 Chromium 截图 |
 
 > 截图与 Word 为重依赖（Playwright / pandoc），缺失时自动跳过。需要时安装：
-> `uv pip install -e ".[media-monitor]"` 并 `playwright install chromium`；
+> `uv pip install -e ".[daily-report]"` 并 `playwright install chromium`；
 > Word 转换另需系统 `pandoc` 二进制。
 
-非敏感默认行为（是否推送、是否跳过某阶段、专用 LLM）在 `config.yaml` 的
-`media_monitor` 段配置。
+非敏感默认行为（是否跳过某阶段、专用 LLM、输出目录）在 `config.yaml` 的
+`daily_report` 段配置。
 
 ### 在聊天里使用
 
-对 Media Monitor Agent 说「**运行今天的媒体监控**」即触发完整流水线；也可要求
+对 Daily Report Agent 说「**运行今天的媒体监控**」即触发完整流水线；也可要求
 分步执行（只抓首页 / 只挑话题 / 只渲染报告）。工具返回 JSON（含报告与 Word
 文件路径），Agent 会用中文说明结果。
+
+### 通过 MCP 获取最新日报
+
+`mcp_server.py` 暴露了 `latest_daily_report` 工具：它**不运行流水线**，只返回
+`output/daily_report/` 下最近生成的那份 Word 日报。日报由定时任务（见下）在后台
+产出，MCP 侧只做读取。
+
+返回**富内容**：一个 `ResourceLink`（文件卡片，指向 http 下载链接）+ 一段
+`TextContent`（JSON 元信息）。支持的客户端（如 WorkBuddy）会把它渲染成**可点击
+的下载组件**，无需手动复制路径。JSON 元信息形如：
+
+```json
+{
+  "ok": true,
+  "file_path": "/abs/path/output/daily_report/xxx.docx",
+  "file_name": "xxx.docx",
+  "download_url": "http://<服务器>:8000/download/daily_report/xxx.docx",
+  "generated_at": "2026-10-12 16:00:03",
+  "size_bytes": 123456,
+  "size_human": "120.6 KB"
+}
+```
+
+无可用文件时返回 `{"ok": false, "error": "..."}`。
+
+另有 `trigger_daily_report` 工具用于**手动触发**一次生成：它在后台异步跑流水线
+（通常数分钟）、调用后立即返回「已开始」，同一时刻只跑一个任务（加锁）；生成完成
+后再用 `latest_daily_report` 取结果。适合「现在立刻刷新一份」、不想等定时任务时。
+
+> 下载由 MCP 服务自带的 `/download/daily_report/{filename}` 端点提供（不依赖
+> 7777 后端）。**跨机部署**（客户端与 MCP 不同机）时，必须在 `config.yaml` 的
+> `mcp.public_base_url` 填客户端可访问的地址，否则 `download_url` 会指向
+> `localhost` 而点击失败。配了 `MCP_AUTH_TOKEN` 时 `download_url` 会自动带
+> `?token=`。
 
 ### 命令行使用（调试 / 手动跑）
 
 ```bash
-python -m utils.media_monitor_pipeline                 # 完整流水线（含 Word）
-python -m utils.media_monitor_pipeline --scrape-only   # 只爬首页
-python -m utils.media_monitor_pipeline --skip-to topics  # 从话题挑选开始
-python -m utils.media_monitor_pipeline --skip-social   # 跳过社交板块
-python -m utils.media_monitor_pipeline --push-feishu   # 完整流水线 + 推送飞书
-python -m utils.media_monitor_pipeline --daily         # 每日定时入口（含推送+异常报警）
+python -m utils.daily_report_pipeline                 # 完整流水线（含 Word）
+python -m utils.daily_report_pipeline --scrape-only   # 只爬首页
+python -m utils.daily_report_pipeline --skip-to topics  # 从话题挑选开始
+python -m utils.daily_report_pipeline --skip-social   # 跳过社交板块
+python -m utils.daily_report_pipeline --daily         # 每日定时入口（仅生成 Word，不推送）
 ```
 
-产物默认落在 `output/media_monitor/`。
+产物默认落在 `output/daily_report/`。
 
 ### 定时运行（进程内 APScheduler）
 
-在 `config.yaml` 的 `scheduler` 段开启，随 `python main.py` 一起启动：
+在 `config.yaml` 的 `scheduler` 段开启，随 `python main.py` 一起启动。默认配置
+为**每天 13:00 与 16:00** 各跑一次完整流水线（仅生成 Word，不推送）：
 
 ```yaml
 scheduler:
   enabled: true
-  cron: ""            # 五段式 "m h dom mon dow"，优先级高于下面的 hour/minute
-  hour: 8
+  cron: "0 13,16 * * *"   # 五段式 "m h dom mon dow"，优先级高于下面的 hour/minute
+  hour: 8                  # cron 为空时回落到 hour/minute
   minute: 0
-  day_of_week: "*"    # 每天；工作日用 "mon-fri"
+  day_of_week: "*"        # 每天；工作日用 "mon-fri"
   timezone: "Asia/Shanghai"
 ```
 
-> 默认 `enabled: false`，避免开发态误触发真实抓取。启用后需确保已配置
-> BrightData key，否则调度器会打印警告、不注册任务。
+> 启用后需确保已配置 BrightData key，否则调度器会打印警告、不注册任务。
+> 产出的 Word 可通过上面的 `latest_daily_report` MCP 工具读取。
 
 ## 新增 Agent
 
