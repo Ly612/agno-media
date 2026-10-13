@@ -24,7 +24,8 @@ agno-media/
     ├── settings.py      # token 从 .env，其余从 yaml
     ├── model.py         # OpenAILike 接第三方网关
     ├── db.py            # SqliteDb 单例
-    ├── scheduler.py     # 进程内定时任务（APScheduler）
+    ├── scheduler.py     # 进程内定时任务（APScheduler）：日报 + 临时文件清理
+    ├── cleanup.py       # 临时文件清理（exports/ 与 output/daily_report/ 旧产物）
     └── daily_report_*.py  # 媒体监控流水线及其工具（抓取/社交/截图/Word/推送）
 ```
 
@@ -236,10 +237,21 @@ scheduler:
   minute: 0
   day_of_week: "*"        # 每天；工作日用 "mon-fri"
   timezone: "Asia/Shanghai"
+  cleanup:                 # 临时文件清理（独立子任务）
+    enabled: true
+    cron: "0 3 * * *"     # 每天 03:00
+    max_age_hours: 48     # 保留 48 小时内的文件
 ```
 
-> 启用后需确保已配置 BrightData key，否则调度器会打印警告、不注册任务。
+> 启用后需确保已配置 BrightData key，否则调度器会打印警告、不注册日报任务。
 > 产出的 Word 可通过上面的 `latest_daily_report` MCP 工具读取。
+
+**临时文件清理**：`scheduler.cleanup` 段控制。到点（默认每天 03:00）**递归**清理
+`exports/` 与 `output/daily_report/` 两个目录下**超过 `max_age_hours` 小时**的所有
+文件——包括最终产物 `report_*.md` / `report_*.docx`，以及 `topics.json` 等中间文件、
+`raw/` / `screenshots/` / `social/` 子目录内的全部内容；删空后的子目录会一并清掉，
+两个顶层目录本身保留。清理任务与日报任务相互独立——即使没配 BrightData key，清理
+仍会注册运行。手动触发：`python -m utils.cleanup [保留小时数]`。
 
 ## 新增 Agent
 

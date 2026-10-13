@@ -37,6 +37,13 @@ scheduler:
   enabled: true
   cron: "0 13,16 * * *"
   timezone: Asia/Shanghai
+  # 临时文件清理：每天夜里递归清理 exports/ 和 output/daily_report/ 下
+  # 超过保留时长的所有旧文件（含 report_*.md/.docx 及 topics.json 等中间文件、
+  # raw/screenshots/social 子目录内容）。删空的子目录一并清掉，顶层目录保留。
+  cleanup:
+    enabled: true
+    cron: "0 3 * * *"       # 每天 03:00
+    max_age_hours: 48       # 保留 48 小时内的文件，更早的清理
 
 # SocialCrawl 社媒抓取服务（api_key 从 .env 的 SOCIALCRAWL_API_KEY 读取）
 socialcrawl:

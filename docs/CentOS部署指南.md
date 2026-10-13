@@ -414,6 +414,30 @@ xvfb-run -a adspower_global \
 
 ## 六、日常运维
 
+### 临时文件自动清理
+
+后端随 `main.py` 启动的定时任务里含一个**临时文件清理** job（`scheduler.cleanup` 段
+控制，默认**每天 03:00**）。它**递归**清理这两个目录下**超过 `max_age_hours`（默认 48）
+小时**的全部文件：
+
+- `exports/` 下用户下载/导出产生的副本（Excel、日报 .docx）；
+- `output/daily_report/` 下的最终产物 `report_*.md` / `report_*.docx`，以及
+  `topics.json` 等中间文件、`raw/` / `screenshots/` / `social/` 子目录内的全部内容。
+
+删空后的子目录会一并清掉，两个顶层目录本身保留。注意：清理依据是文件**最后修改时间**，
+下次日报生成会重新产出所需的中间文件，不影响功能。
+
+```yaml
+scheduler:
+  cleanup:
+    enabled: true
+    cron: "0 3 * * *"       # 每天 03:00；五段式 "m h dom mon dow"
+    max_age_hours: 48
+```
+
+> 该任务独立于日报任务——即使没配 BrightData key 也会注册运行。
+> 手动立即清理（可传保留小时数）：`.venv/bin/python -m utils.cleanup 48`。
+
 ### 查看进程
 
 ```bash

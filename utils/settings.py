@@ -121,6 +121,14 @@ SCHEDULER_MINUTE = _sched.get("minute", 0)
 SCHEDULER_DAY_OF_WEEK = str(_sched.get("day_of_week", "*"))
 SCHEDULER_TIMEZONE = _sched.get("timezone", "Asia/Shanghai")
 
+# ── 临时文件清理（随定时任务一起启动）────────────────────────
+# 每天定时清理 exports/ 与 output/daily_report/ 下由用户请求产生、
+# 且超过保留时长的旧文件。时区复用 SCHEDULER_TIMEZONE。
+_cleanup = _sched.get("cleanup", {}) if isinstance(_sched.get("cleanup"), dict) else {}
+CLEANUP_ENABLED = bool(_cleanup.get("enabled", False))
+CLEANUP_CRON = (_cleanup.get("cron") or "0 3 * * *").strip()
+CLEANUP_MAX_AGE_HOURS = float(_cleanup.get("max_age_hours", 48))
+
 # 流水线默认行为（可被 Agent 工具参数覆盖）
 DR_SKIP_SOCIAL = bool(_mm.get("skip_social", False))
 DR_SKIP_SCREENSHOT = bool(_mm.get("skip_screenshot", False))

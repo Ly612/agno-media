@@ -23,6 +23,8 @@ from typing import Optional
 
 from utils.settings import (
     BRIGHTDATA_API_KEY,
+    CLEANUP_CRON,
+    CLEANUP_ENABLED,
     DR_SKIP_SCREENSHOT,
     DR_SKIP_SOCIAL,
     DR_SKIP_WORD,
@@ -63,22 +65,27 @@ def _run_daily_report_job() -> None:
         traceback.print_exc()
 
 
+def _parse_cron(cron: str, field_name: str) -> dict:
+    """把五段式 cron 字符串解析成 CronTrigger 的 kwargs。"""
+    parts = cron.split()
+    if len(parts) != 5:
+        raise ValueError(
+            f"{field_name} 必须是五段式 'm h dom mon dow'，当前: {cron!r}"
+        )
+    minute, hour, dom, month, dow = parts
+    return {
+        "minute": minute,
+        "hour": hour,
+        "day": dom,
+        "month": month,
+        "day_of_week": dow,
+    }
+
+
 def _build_trigger_kwargs() -> dict:
-    """根据配置构造 CronTrigger 的参数。cron 优先，否则用 hour/minute/day_of_week。"""
+    """根据配置构造日报 CronTrigger 的参数。cron 优先，否则用 hour/minute/day_of_week。"""
     if SCHEDULER_CRON:
-        parts = SCHEDULER_CRON.split()
-        if len(parts) != 5:
-            raise ValueError(
-                f"scheduler.cron 必须是五段式 'm h dom mon dow'，当前: {SCHEDULER_CRON!r}"
-            )
-        minute, hour, dom, month, dow = parts
-        return {
-            "minute": minute,
-            "hour": hour,
-            "day": dom,
-            "month": month,
-            "day_of_week": dow,
-        }
+        return _parse_cron(SCHEDULER_CRON, "scheduler.cron")
     return {
         "hour": SCHEDULER_HOUR,
         "minute": SCHEDULER_MINUTE,
@@ -86,11 +93,70 @@ def _build_trigger_kwargs() -> dict:
     }
 
 
+def _register_daily_report_job(scheduler, CronTrigger) -> bool:
+    """注册媒体监控日报 job。无 BrightData key 或 cron 非法时跳过，返回是否注册成功。"""
+    if not BRIGHTDATA_API_KEY:
+        print(
+            "⚠ [scheduler] 未配置 BRIGHT_DATA_API_KEY，媒体监控无法抓取，"
+            "跳过注册日报定时任务"
+        )
+        return False
+    try:
+        trigger_kwargs = _build_trigger_kwargs()
+    except ValueError as e:
+        print(f"⚠ [scheduler] {e}，跳过注册日报定时任务")
+        return False
+
+    scheduler.add_job(
+        _run_daily_report_job,
+        trigger=CronTrigger(timezone=SCHEDULER_TIMEZONE, **trigger_kwargs),
+        id="daily_report_daily",
+        name="媒体监控日报",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    schedule_desc = SCHEDULER_CRON or (
+        f"{SCHEDULER_HOUR:02d}:{SCHEDULER_MINUTE:02d} "
+        f"(day_of_week={SCHEDULER_DAY_OF_WEEK})"
+    )
+    print(f"✅ [scheduler] 媒体监控日报已注册: {schedule_desc} [{SCHEDULER_TIMEZONE}]")
+    return True
+
+
+def _register_cleanup_job(scheduler, CronTrigger) -> bool:
+    """注册临时文件清理 job。未启用或 cron 非法时跳过，返回是否注册成功。"""
+    if not CLEANUP_ENABLED:
+        print("ℹ [scheduler] 临时文件清理未启用（scheduler.cleanup.enabled=false）")
+        return False
+    try:
+        trigger_kwargs = _parse_cron(CLEANUP_CRON, "scheduler.cleanup.cron")
+    except ValueError as e:
+        print(f"⚠ [scheduler] {e}，跳过注册清理定时任务")
+        return False
+
+    # 延迟导入：仅在启用清理时才引入
+    from utils.cleanup import run_cleanup_job
+
+    scheduler.add_job(
+        run_cleanup_job,
+        trigger=CronTrigger(timezone=SCHEDULER_TIMEZONE, **trigger_kwargs),
+        id="temp_files_cleanup",
+        name="临时文件清理",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    print(f"✅ [scheduler] 临时文件清理已注册: {CLEANUP_CRON} [{SCHEDULER_TIMEZONE}]")
+    return True
+
+
 def start_scheduler():
     """按配置启动进程内定时任务，返回 scheduler 实例（未启动时返回 None）。
 
     - scheduler.enabled=false：不启动，直接返回 None。
-    - 无 BrightData key：打印警告、不注册 job（流水线无法跑核心阶段）。
+    - 日报 job 与清理 job 相互独立：无 BrightData key 时仍会注册清理 job。
+    - 两个 job 都没注册成功时，不启动空调度器，返回 None。
     - 已启动过（reload 重复调用）：直接返回已有实例，不重复注册。
     """
     global _scheduler
@@ -103,13 +169,6 @@ def start_scheduler():
         print("ℹ [scheduler] 调度器已在运行，跳过重复启动")
         return _scheduler
 
-    if not BRIGHTDATA_API_KEY:
-        print(
-            "⚠ [scheduler] 未配置 BRIGHT_DATA_API_KEY，媒体监控无法抓取，"
-            "跳过注册定时任务"
-        )
-        return None
-
     # 延迟导入 APScheduler：只有真正启用定时任务时才需要这个依赖
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -121,34 +180,16 @@ def start_scheduler():
         )
         return None
 
-    try:
-        trigger_kwargs = _build_trigger_kwargs()
-    except ValueError as e:
-        print(f"⚠ [scheduler] {e}，跳过注册定时任务")
+    scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
+    registered_report = _register_daily_report_job(scheduler, CronTrigger)
+    registered_cleanup = _register_cleanup_job(scheduler, CronTrigger)
+
+    if not (registered_report or registered_cleanup):
+        print("⚠ [scheduler] 无任何定时任务注册成功，不启动调度器")
         return None
 
-    scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
-    trigger = CronTrigger(timezone=SCHEDULER_TIMEZONE, **trigger_kwargs)
-    scheduler.add_job(
-        _run_daily_report_job,
-        trigger=trigger,
-        id="daily_report_daily",
-        name="媒体监控日报",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
     scheduler.start()
     _scheduler = scheduler
-
-    schedule_desc = SCHEDULER_CRON or (
-        f"{SCHEDULER_HOUR:02d}:{SCHEDULER_MINUTE:02d} "
-        f"(day_of_week={SCHEDULER_DAY_OF_WEEK})"
-    )
-    print(
-        f"✅ [scheduler] 媒体监控定时任务已启动: {schedule_desc} "
-        f"[{SCHEDULER_TIMEZONE}]"
-    )
     return scheduler
 
 
