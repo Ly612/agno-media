@@ -26,7 +26,7 @@ description: 联网搜索最新新闻、网页信息、Facebook 主页帖子并�
 
 `latest_daily_report` 返回的不是纯文本链接，而是**结构化富内容**，支持的客户端（如 WorkBuddy）会渲染成**可点击的文件卡片 / 下载组件**：
 
-- **`ResourceLink`**（主）：指向该 .docx 的 **http 下载链接**（由 MCP 服务自带下载端点提供），带文件名、标题、描述、`mimeType`（docx）、`size`。用户**点击即可下载 / 打开**，无需手动复制路径。因用的是 http 链接，**客户端与 MCP 服务不在同一台机器也能用**（跨机部署）。
+- **`ResourceLink`**（主）：指向该 .docx 的 **http 下载链接**（复用 AgentOS 后端 7777 的 `/download` 端点，与 `export_report` 的 Excel 同机制），带文件名、标题、描述、`mimeType`（docx）、`size`。用户**点击即可下载 / 打开**，无需手动复制路径。因用的是 http 链接，**客户端与服务不在同一台机器也能用**（跨机部署）。
 - **`TextContent`**（兜底）：同样的元信息（JSON，含 `download_url`），供不渲染资源卡片的客户端使用——可直接把 `download_url` 渲染成 markdown 链接 `[下载 Word 日报](download_url)`。
 
 ## 触发场景
@@ -82,7 +82,7 @@ description: 联网搜索最新新闻、网页信息、Facebook 主页帖子并�
        "ok": true,
        "file_path": "/abs/path/output/daily_report/report_20261012_160003.docx",
        "file_name": "report_20261012_160003.docx",
-       "download_url": "http://<服务器>:8000/download/daily_report/report_20261012_160003.docx",
+       "download_url": "http://<服务器>:7777/download/report_20261012_160003.docx",
        "generated_at": "2026-10-12 16:00:03",
        "size_bytes": 123456,
        "size_human": "120.6 KB"
@@ -159,7 +159,7 @@ description: 联网搜索最新新闻、网页信息、Facebook 主页帖子并�
 - 服务器 URL：`http://<服务器IP>:8000/mcp`（端口由 `config.yaml` 的 `mcp.port` 决定，默认 8000）
 - 鉴权：
   - 连接 MCP（`/mcp`）：若服务端 `.env` 设置了 `MCP_AUTH_TOKEN`，客户端需在 Headers 加 `Authorization: Bearer <该值>`；留空则不校验。
-  - 下载日报（`/download/daily_report/...`）：同样受 token 保护，但支持两种方式——`Authorization: Bearer <token>` 头，或在 URL 后加 `?token=<token>`。配了 token 时工具返回的 `download_url` 会**自动带上 `?token=`**，文件卡片点击即可下载。
+  - 下载日报：**复用 AgentOS 后端（7777）的 `/download/{filename}` 端点**，与 `export_report` 导出的 Excel **完全同一机制**（同一端点、同一份 `server.public_base_url` 配置），不校验 token。因此下载依赖后端（7777）在运行。
 - 产物目录：服务端 `output/daily_report/`，文件名形如 `report_YYYYMMDD_HHMMSS.docx`。
-- URI 类型：`ResourceLink.uri` 使用 **http 下载链接**（MCP 服务自带 `/download/daily_report/{filename}` 端点），**跨机部署也可用**。
-- 跨机必配：`config.yaml` 的 `mcp.public_base_url` 必须填**客户端可访问**的地址（如 `http://服务器IP:8000` 或 `http://你的域名`）。留空会回退到 `localhost:8000`，跨机点击会失败。
+- URI 类型：`ResourceLink.uri` 使用 **http 下载链接**（`{server.public_base_url}/download/{filename}`），**跨机部署也可用**。
+- 跨机必配：`config.yaml` 的 **`server.public_base_url`** 必须填**客户端可访问**的地址（如 `http://服务器IP:7777` 或 `http://你的域名`），日报与 Excel 共用此配置；留空会回退到 `localhost:7777`，跨机点击会失败。

@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from utils.db import get_db
 from utils.settings import (
     CORS_ORIGINS,
+    DAILY_REPORT_OUTPUT_DIR,
     EXPORT_DIR,
     SERVER_HOST,
     SERVER_PORT,
@@ -54,9 +55,17 @@ app.add_middleware(
 
 @app.get("/download/{filename}")
 def download_report(filename: str):
-    filepath = (EXPORT_DIR / filename).resolve()
-    # 防止路径穿越，确保文件在导出目录内
-    if EXPORT_DIR.resolve() not in filepath.parents or not filepath.is_file():
+    # 与 export_report 的 Excel 下载共用同一端点：优先在 exports/ 查找，
+    # 找不到再回退到 output/daily_report/（日报 .docx 落盘处）。
+    candidates = [EXPORT_DIR, DAILY_REPORT_OUTPUT_DIR]
+    filepath = None
+    for base_dir in candidates:
+        candidate = (base_dir / filename).resolve()
+        # 防止路径穿越，确保文件在对应目录内
+        if base_dir.resolve() in candidate.parents and candidate.is_file():
+            filepath = candidate
+            break
+    if filepath is None:
         raise HTTPException(status_code=404, detail="文件不存在")
     # 按扩展名推断 MIME（.xlsx / .docx 等各自对应），未知则交给浏览器兜底
     media_type, _ = mimetypes.guess_type(filename)

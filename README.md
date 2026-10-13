@@ -192,7 +192,7 @@ git push -u origin feature/你的功能
   "ok": true,
   "file_path": "/abs/path/output/daily_report/xxx.docx",
   "file_name": "xxx.docx",
-  "download_url": "http://<服务器>:8000/download/daily_report/xxx.docx",
+  "download_url": "http://<服务器>:7777/download/xxx.docx",
   "generated_at": "2026-10-12 16:00:03",
   "size_bytes": 123456,
   "size_human": "120.6 KB"
@@ -205,11 +205,11 @@ git push -u origin feature/你的功能
 （通常数分钟）、调用后立即返回「已开始」，同一时刻只跑一个任务（加锁）；生成完成
 后再用 `latest_daily_report` 取结果。适合「现在立刻刷新一份」、不想等定时任务时。
 
-> 下载由 MCP 服务自带的 `/download/daily_report/{filename}` 端点提供（不依赖
-> 7777 后端）。**跨机部署**（客户端与 MCP 不同机）时，必须在 `config.yaml` 的
-> `mcp.public_base_url` 填客户端可访问的地址，否则 `download_url` 会指向
-> `localhost` 而点击失败。配了 `MCP_AUTH_TOKEN` 时 `download_url` 会自动带
-> `?token=`。
+> 下载**复用 AgentOS 后端（7777）的 `/download/{filename}` 端点**，与
+> `export_report` 导出的 Excel **同一机制**（同一端点、同一份配置）。**跨机部署**
+> （客户端与服务不同机）时，必须在 `config.yaml` 的 `server.public_base_url` 填
+> 客户端可访问的地址，否则 `download_url` 会指向 `localhost` 而点击失败。该端点与
+> Excel 下载一致、不校验 `MCP_AUTH_TOKEN`。
 
 ### 命令行使用（调试 / 手动跑）
 

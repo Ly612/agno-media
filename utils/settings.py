@@ -50,13 +50,13 @@ MCP_HOST = _mcp.get("host", "0.0.0.0")
 MCP_PORT = _mcp.get("port", 8000)
 # MCP 接入鉴权 token（从 .env 读取）。留空则不校验（不推荐对外暴露时留空）
 MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN", "")
-# MCP 对外访问地址：优先用 config 的 public_base_url，否则回退到 host:port。
-# 监听 0.0.0.0 对客户端不可用，回退时换成 localhost 以便本机自测。
-_mcp_public = (_mcp.get("public_base_url") or "").rstrip("/")
-_mcp_fallback_host = "localhost" if MCP_HOST in ("0.0.0.0", "") else MCP_HOST
-_mcp_base = _mcp_public if _mcp_public else f"http://{_mcp_fallback_host}:{MCP_PORT}"
-# 日报 .docx 的下载链接前缀。实际文件名拼在后面：{MCP_DOWNLOAD_BASE_URL}/{filename}
-MCP_DOWNLOAD_BASE_URL = f"{_mcp_base}/download/daily_report"
+
+# 日报 .docx 的下载链接：**复用 AgentOS 后端（7777）的 /download 端点**，
+# 与 export_report 导出的 Excel 走完全相同的机制（同一个端点、同一份
+# server.public_base_url 配置）。不再依赖 MCP 服务自带的下载端点，因此
+# 不再需要 mcp.public_base_url。
+# 实际文件名拼在后面：{DAILY_REPORT_DOWNLOAD_BASE_URL}/{filename}
+DAILY_REPORT_DOWNLOAD_BASE_URL = DOWNLOAD_BASE_URL
 
 
 # ═══════════════════════════════════════════════════════════

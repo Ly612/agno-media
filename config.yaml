@@ -26,11 +26,9 @@ server:
 mcp:
   host: 0.0.0.0
   port: 8000
-  # 对外访问 MCP 服务的基础地址（用于生成日报 .docx 的 http 下载链接）。
-  # 跨机部署时必须填：WordBuddy 等客户端与 MCP 不在同一台机器，file:// 无法解析，
-  # 需用 http 链接。本地留空即自动用 host:port。
-  # 服务器直连填 http://服务器IP:8000；配了域名+Nginx反代则填 http://你的域名。
-  public_base_url: "http://150.109.16.54:8000"
+  # 注：日报 .docx 的下载链接已改为复用 AgentOS 后端（7777）的 /download 端点
+  # （与 export_report 导出的 Excel 同一机制），故不再需要 mcp.public_base_url。
+  # 对外地址统一由上面的 server.public_base_url 决定。
 
 # 定时任务（APScheduler，随 main.py 启动）
 # daily_report 流水线每天下午 13:00 和 16:00 各跑一次，仅生成 Word 缓存（不推送）。

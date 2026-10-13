@@ -265,31 +265,31 @@ MCP_AUTH_TOKEN=自定义一个足够复杂的密钥
 
 #### 日报下载端点与跨机部署（重要）
 
-日报 .docx 的下载由 **MCP Server（8000）自带**的端点提供，路径
-`/download/daily_report/{filename}`，**不依赖** AgentOS 后端（7777）。
+日报 .docx 的下载**复用 AgentOS 后端（7777）的 `/download/{filename}` 端点**，
+与 `export_report` 导出的 Excel **完全同一机制**（同一个端点、同一份
+`server.public_base_url` 配置），不再使用 MCP Server 自带的下载端点。
 
-由于 WordBuddy 等客户端通常与 MCP Server **不在同一台机器**，文件卡片用的是
-http 链接而非本机 `file://`，因此必须在 `config.yaml` 的 `mcp` 段填**对外可访问**
-的基础地址：
+因此对外地址只需在 `config.yaml` 的 **`server` 段**填一次：
 
 ```yaml
-mcp:
+server:
   host: 0.0.0.0
-  port: 8000
-  public_base_url: "http://SERVER_IP:8000"   # 或 http://你的域名（配了 Nginx 反代时）
+  port: 7777
+  public_base_url: "http://SERVER_IP:7777"   # 日报与 Excel 共用；或 http://你的域名
 ```
 
-> 留空会回退到 `localhost:8000`，跨机点击下载会失败，务必填成客户端能访问到的地址。
+> 由于 WordBuddy 等客户端通常与服务**不在同一台机器**，文件卡片用的是 http 链接
+> 而非本机 `file://`。留空会回退到 `localhost:7777`，跨机点击下载会失败，务必填成
+> 客户端能访问到的地址。
 
-下载端点同样受 `MCP_AUTH_TOKEN` 保护，支持两种带 token 的方式：
-`Authorization: Bearer <token>` 头，或 URL 后加 `?token=<token>`。配了 token 时
-`download_url` 会**自动带上 `?token=`**，文件卡片点一下即可下载。放行 8000 端口后
-即可生效。
+> **注意**：该端点由后端（7777）提供，所以**日报下载需要后端在运行**。若只想跑
+> MCP（8000）、不跑后端，则点击日报下载会失败——此场景请改回用 MCP 自带端点。
 
-> 验证鉴权：不带 Header / token 请求 `/mcp` 会返回 401，带正确 Bearer token 返回 200。
+> `mcp.public_base_url` 已**不再需要**（MCP 服务不再自带下载端点），可留空或删除。
 
-> 说明：`export_report` 的 Excel 下载链接仍由 AgentOS 后端（7777）的 `/download`
-> 提供；若只用日报功能，可只跑 MCP Server（8000）。
+> 验证鉴权：MCP 的 `/mcp` 端点仍受 `MCP_AUTH_TOKEN` 保护——不带 Header 请求会返回
+> 401，带正确 Bearer token 返回 200。日报下载端点（后端 7777）与 Excel 一致，不校验
+> MCP token。
 
 ---
 

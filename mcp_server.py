@@ -17,7 +17,6 @@
 """
 
 import json
-import mimetypes
 import threading
 import traceback
 from datetime import datetime
@@ -28,9 +27,7 @@ from urllib.parse import quote
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ResourceLink, TextContent
 from starlette.datastructures import Headers
-from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse
-from starlette.routing import Route
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from utils.exporter import export_to_excel
@@ -38,25 +35,25 @@ from utils.serpapi_tools import google_news as _google_news
 from utils.serpapi_tools import google_search as _google_search
 from utils.socialcrawl_tools import facebook_profile_posts as _facebook_profile_posts
 from utils.settings import (
+    DAILY_REPORT_DOWNLOAD_BASE_URL,
     DAILY_REPORT_OUTPUT_DIR,
     DR_SKIP_SCREENSHOT,
     DR_SKIP_SOCIAL,
     DR_SKIP_WORD,
     MCP_AUTH_TOKEN,
-    MCP_DOWNLOAD_BASE_URL,
     MCP_HOST,
     MCP_PORT,
 )
 
 
 def _build_download_url(filename: str) -> str:
-    """拼日报 .docx 的对外下载链接；配了鉴权 token 时自动带上 ?token=，
-    以便文件卡片 / 浏览器点击时也能通过校验（无需手动加 Authorization 头）。
+    """拼日报 .docx 的对外下载链接。
+
+    与 export_report 导出的 Excel 走**同一个** AgentOS 后端（7777）/download
+    端点、同一份 server.public_base_url 配置；不带鉴权 token（该端点与 Excel
+    下载一致，不校验 token）。
     """
-    url = f"{MCP_DOWNLOAD_BASE_URL}/{quote(filename)}"
-    if MCP_AUTH_TOKEN:
-        url += f"?token={quote(MCP_AUTH_TOKEN)}"
-    return url
+    return f"{DAILY_REPORT_DOWNLOAD_BASE_URL}/{quote(filename)}"
 
 mcp = FastMCP("agno-media", host=MCP_HOST, port=MCP_PORT)
 
@@ -265,10 +262,11 @@ def latest_daily_report() -> list:
 
     返回富内容（结构化），支持的客户端（如 WorkBuddy）会把日报渲染成**可点击
     的文件卡片 / 下载组件**，而非一段裸文本链接：
-    - 一个 ResourceLink：指向该 .docx 的 http 下载链接（MCP 服务自带的下载端点），
+    - 一个 ResourceLink：指向该 .docx 的 http 下载链接（**复用 AgentOS 后端
+      7777 的 /download 端点，与 export_report 的 Excel 下载同一机制**），
       含文件名、大小、类型，客户端据此展示文件卡片，用户点击即可下载 / 打开。
-      跨机部署（客户端与 MCP 不同机）也可用，前提是 config.yaml 的
-      mcp.public_base_url 填了对外可访问的地址。
+      跨机部署（客户端与服务不同机）也可用，前提是 config.yaml 的
+      server.public_base_url 填了对外可访问的地址。
     - 一段 TextContent：同样的元信息（JSON，含 download_url），供不渲染资源
       卡片的客户端兜底——可直接把 download_url 渲染成 markdown 链接。
 
@@ -289,7 +287,7 @@ def latest_daily_report() -> list:
 
     link = ResourceLink(
         type="resource_link",
-        # http 下载链接（MCP 服务自带 /download/daily_report 端点）——跨机可用
+        # http 下载链接（复用后端 7777 /download 端点，与 Excel 同机制）——跨机可用
         uri=meta["download_url"],
         name=meta["file_name"],
         title=f"媒体监控日报 · {meta['generated_at']}",
@@ -361,48 +359,10 @@ def trigger_daily_report() -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-async def download_daily_report(request: Request) -> FileResponse:
-    """GET /download/daily_report/{filename}
-
-    从 output/daily_report 目录提供日报 .docx 下载。供 ResourceLink 的 http
-    URI 指向，让跨机客户端（WordBuddy 与 MCP 不同机）也能点击下载。
-
-    鉴权：若设置了 MCP_AUTH_TOKEN，需带 Authorization: Bearer <token>，或在
-    URL 后加 ?token=<token>（方便浏览器 / 文件卡片直接点击）。
-    """
-    if MCP_AUTH_TOKEN:
-        auth = request.headers.get("authorization", "")
-        token_q = request.query_params.get("token", "")
-        if auth != f"Bearer {MCP_AUTH_TOKEN}" and token_q != MCP_AUTH_TOKEN:
-            return JSONResponse(
-                {"error": "Unauthorized: 无效或缺失的 token"}, status_code=401
-            )
-
-    filename = request.path_params["filename"]
-    filepath = (DAILY_REPORT_OUTPUT_DIR / filename).resolve()
-    # 防止路径穿越：必须落在 output/daily_report 目录内，且确为文件
-    base = DAILY_REPORT_OUTPUT_DIR.resolve()
-    if base not in filepath.parents or not filepath.is_file():
-        return JSONResponse({"error": "文件不存在"}, status_code=404)
-
-    media_type, _ = mimetypes.guess_type(filename)
-    return FileResponse(
-        path=filepath,
-        filename=filename,
-        media_type=media_type or "application/octet-stream",
-    )
-
-
 class BearerAuthMiddleware:
     """校验 Authorization: Bearer <token>。MCP_AUTH_TOKEN 为空时放行所有请求。
 
-    纯 ASGI 中间件（非 BaseHTTPMiddleware）：只读请求头、原样透传响应流，
-    不做响应缓冲。这对 /download 的 FileResponse 大文件流很关键——
-    BaseHTTPMiddleware 会包裹整个响应体，某些 starlette/uvicorn 版本下
-    会导致流式下载挂起（浏览器一直转圈「加载不出来」）。
-
-    /download 路径豁免（其自带 token 校验，支持 header 或 ?token= 查询参数），
-    以便文件卡片 / 浏览器点击下载时无需手动加 Authorization 头。
+    纯 ASGI 中间件（非 BaseHTTPMiddleware）：只读请求头、原样透传响应流。
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -410,11 +370,6 @@ class BearerAuthMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not MCP_AUTH_TOKEN:
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "")
-        if path.startswith("/download/"):  # 豁免，交给下载端点自带校验
             await self.app(scope, receive, send)
             return
 
@@ -435,13 +390,5 @@ if __name__ == "__main__":
     import uvicorn
 
     app = mcp.streamable_http_app()
-    # 注册日报下载端点（供 ResourceLink 的 http URI 指向）
-    app.router.routes.append(
-        Route(
-            "/download/daily_report/{filename}",
-            download_daily_report,
-            methods=["GET", "HEAD"],
-        )
-    )
     app.add_middleware(BearerAuthMiddleware)
     uvicorn.run(app, host=MCP_HOST, port=MCP_PORT)
